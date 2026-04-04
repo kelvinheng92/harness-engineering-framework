@@ -51,8 +51,7 @@ experiments/
 
 ### Model development checklist
 1. Define problem type and success metric before writing code
-2. Document data classification level — INTERNAL or higher requires approval for external model calls
-3. Validate data schema before training (no silent failures on missing columns)
+2. Validate data schema before training (no silent failures on missing columns)
 4. Log all hyperparameters and dataset versions to MLflow
 5. Evaluate with business-relevant metrics, not just accuracy
 6. Include fairness checks when model affects customers (credit, churn, pricing)
@@ -62,11 +61,10 @@ experiments/
 
 ## Data handling — CRITICAL
 
-- State the **data classification level** at the top of every response touching data
 - Never include real customer data in code, configs, or notebooks — use synthetic equivalents
 - Placeholder conventions: `customer_id = "CUST_XXXX"`, `account_no = "ACC-XXXXX-X"`, `nric = "SXXXXXXXA"`
 - PII fields (NRIC, account numbers, full names) must be masked or excluded from model inputs unless explicitly approved
-- Never send INTERNAL or higher data to external APIs or cloud services
+- Never send data to external APIs or cloud services
 
 ---
 

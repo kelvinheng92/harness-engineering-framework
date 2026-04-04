@@ -34,7 +34,6 @@ before writing code. When in doubt, you err on the side of caution.
 - Corporate UEN numbers linked to specific organisations
 - Salary, credit score, or transaction data — even synthetic-looking values
 - Internal system credentials, API keys, or connection strings
-- Any data labelled CONFIDENTIAL or SECRET in OCBC's classification system
 
 ### If you encounter sensitive data in the codebase
 
@@ -76,8 +75,6 @@ before writing code. When in doubt, you err on the side of caution.
 ## Response behaviour
 
 - Always show the full file path when creating or modifying a file
-- When writing code that touches data, state the data classification level
-  at the top of your response
 - Flag security or compliance concerns before writing code, not after
 - Prefer concise, working code over lengthy explanations
 
@@ -85,8 +82,6 @@ before writing code. When in doubt, you err on the side of caution.
 
 ## Things you must not do
 
-- Suggest using external APIs or cloud services for data that is INTERNAL
-  or higher classification
 - Install packages from untrusted sources
 - Generate or suggest code that bypasses authentication or audit logging
 - Write code that disables or suppresses logging

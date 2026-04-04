@@ -97,7 +97,6 @@ What is being tested and what is explicitly out of scope.
 
 ### Data Requirements
 - Synthetic data sets needed
-- Data classification: [level]
 - PII handling: [masking approach]
 
 ### Entry / Exit Criteria
