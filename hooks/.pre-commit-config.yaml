@@ -1,0 +1,57 @@
+# TODO: To be replaced with ds spine config
+
+repos:
+  # OCBC internal PII and secrets scanner
+  - repo: local
+    hooks:
+      - id: ocbc-pii-scan
+        name: "OCBC PII & Secrets Scanner"
+        entry: python hooks/pre_commit_pii.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+  # Standard Python hygiene (uses internal PyPI mirror)
+  - repo: local
+    hooks:
+      - id: ruff-lint
+        name: "Ruff linter"
+        entry: ruff check --fix
+        language: system
+        types: [python]
+        stages: [pre-commit]
+
+      - id: ruff-format
+        name: "Ruff formatter"
+        entry: ruff format
+        language: system
+        types: [python]
+        stages: [pre-commit]
+
+      - id: mypy
+        name: "Mypy type check"
+        entry: mypy --ignore-missing-imports
+        language: system
+        types: [python]
+        stages: [pre-commit]
+
+  # Detect secrets (detect-secrets from internal PyPI)
+  - repo: local
+    hooks:
+      - id: detect-secrets
+        name: "Detect secrets baseline check"
+        entry: detect-secrets-hook
+        language: system
+        args: ["--baseline", ".secrets.baseline"]
+        stages: [pre-commit]
+
+  # Notebook output cleaner (prevents data leakage via notebook outputs)
+  - repo: local
+    hooks:
+      - id: nbstripout
+        name: "Strip Jupyter notebook outputs"
+        entry: nbstripout
+        language: system
+        types: [jupyter]
+        stages: [pre-commit]
