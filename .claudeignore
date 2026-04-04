@@ -1,0 +1,62 @@
+# ── Data files ───────────────────────────────────────────────────────────────
+# Never index raw or processed data — reference by schema/column names only
+data/
+datasets/
+raw_data/
+processed_data/
+*.csv
+*.parquet
+*.pkl
+*.h5
+*.hdf5
+*.feather
+*.arrow
+*.xlsx
+*.xls
+*.tsv
+*.jsonl
+
+# ── ML artifacts ──────────────────────────────────────────────────────────────
+mlruns/
+mlartifacts/
+*.ckpt
+*.pth
+*.safetensors
+*.onnx
+*.bin
+models/weights/
+
+# ── Python build artifacts ────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+dist/
+build/
+*.egg-info/
+.eggs/
+.tox/
+
+# ── Jupyter ───────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── Frontend build artifacts ──────────────────────────────────────────────────
+node_modules/
+.next/
+.nuxt/
+.parcel-cache/
+.cache/
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── OS / IDE ──────────────────────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+Thumbs.db
+*.swp
+*.swo

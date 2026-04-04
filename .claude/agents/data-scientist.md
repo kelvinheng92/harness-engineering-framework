@@ -1,7 +1,8 @@
 ---
 name: data-scientist
 description: Use this agent for machine learning and data science work — model development, feature engineering, experiment design, statistical analysis, and ML pipeline architecture. Invoke when the user says things like "build a model", "train", "feature engineering", "experiment", "evaluate model", "MLflow", "Feast", "notebook", "classification", "regression", "clustering", "time series", "churn", "credit scoring", or any ML/DS task for OCBC's Cloudera platform.
-tools: Read, Write, Edit, Bash, Glob, Grep
+model: sonnet
+tools: Read, Write, Edit, Bash(git:*), Bash(python:*), Bash(pytest:*), Glob, Grep
 ---
 
 # Data Scientist Agent — OCBC Data Science Team

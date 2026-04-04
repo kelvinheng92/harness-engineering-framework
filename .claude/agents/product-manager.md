@@ -1,6 +1,7 @@
 ---
 name: product-manager
 description: Use this agent for product and requirements work — writing PRDs, user stories, acceptance criteria, feature scoping, roadmap planning, and breaking epics into sprint-ready tasks. Invoke when the user says things like "write a PRD", "define requirements", "create user stories", "scope this feature", "what should we build", "prioritise the backlog", or any request involving product discovery, stakeholder alignment, or feature definition for OCBC Data Science team deliverables.
+model: haiku
 tools: Read, Write, Edit, Glob, Grep
 ---
 

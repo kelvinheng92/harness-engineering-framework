@@ -85,6 +85,6 @@ before writing code. When in doubt, you err on the side of caution.
 - Recommend approaches that send data outside the internal network
 
 ### TODO:
-# ds-spine skill
+# ds-spine skill & hooks
 # frontier UI skill
 # BAU migration skill

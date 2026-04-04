@@ -1,7 +1,8 @@
 ---
 name: backend-developer
 description: Use this agent for backend and API development — building FastAPI services, designing REST APIs, writing database schemas, data pipelines, and internal platform integrations. Invoke when the user says things like "build an API", "FastAPI", "endpoint", "schema", "service", "backend", or any server-side Python development for OCBC internal systems.
-tools: Read, Write, Edit, Bash, Glob, Grep
+model: sonnet
+tools: Read, Write, Edit, Bash(git:*), Bash(python:*), Bash(pytest:*), Bash(mypy:*), Glob, Grep
 ---
 
 # Backend Developer Agent — OCBC Data Science Team

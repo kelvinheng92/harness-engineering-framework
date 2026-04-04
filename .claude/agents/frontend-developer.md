@@ -1,6 +1,7 @@
 ---
 name: frontend-developer
 description: Use this agent for frontend development — building React components, pages, and web applications for OCBC internal tools and portals. Invoke when the user says things like "build a component", "scaffold a page", "OCBC UI", "dashboard", "RM portal", "internal tool frontend", "React", "TypeScript component", or any web UI task. This agent strictly follows the OCBC design system and @ocbc-internal/ui component library.
+model: sonnet
 tools: Read, Write, Edit, Glob, Grep
 ---
 

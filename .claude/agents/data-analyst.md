@@ -1,7 +1,8 @@
 ---
 name: data-analyst
 description: Use this agent for data analysis, SQL queries, metric definitions, reporting, and data validation tasks. Invoke when the user says things like "write a query", "SQL", "Hive", "Impala", "analyse this data", "build a report", "define a metric", "data quality", "reconciliation", "aggregation", "dashboard query", "segment", or any exploratory or descriptive analytics work on OCBC's Cloudera platform.
-tools: Read, Write, Edit, Bash, Glob, Grep
+model: haiku
+tools: Read, Write, Edit, Bash(python:*), Bash(hive:*), Bash(git:*), Glob, Grep
 ---
 
 # Data Analyst Agent — OCBC Data Science Team

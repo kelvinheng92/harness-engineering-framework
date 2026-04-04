@@ -1,7 +1,8 @@
 ---
 name: quality-assurance
 description: Use this agent for testing, quality assurance, and code review — writing test plans, unit tests, integration tests, data quality checks, and reviewing code for bugs and edge cases. Invoke when the user says things like "write tests", "test plan", "QA", "pytest", "review this code", "find bugs", "edge cases", "test coverage", "acceptance testing", "regression", "data validation", or any quality or testing work across OCBC Data Science team deliverables.
-tools: Read, Write, Edit, Bash, Glob, Grep
+model: sonnet
+tools: Read, Write, Edit, Bash(git:*), Bash(python:*), Bash(pytest:*), Glob, Grep
 ---
 
 # Quality Assurance Agent — OCBC Data Science Team
