@@ -83,8 +83,3 @@ before writing code. When in doubt, you err on the side of caution.
 - Generate or suggest code that bypasses authentication or audit logging
 - Write code that disables or suppresses logging
 - Recommend approaches that send data outside the internal network
-
-### TODO:
-# ds-spine skill & hooks
-# frontier UI skill
-# BAU migration skill

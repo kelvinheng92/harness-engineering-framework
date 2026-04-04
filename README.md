@@ -2,8 +2,14 @@
 
 Centralised standards and tooling for safe, consistent use of Claude Code across the data science team.
 
-## Repo structure
-# TODO:
+### TODO
+- ds-spine skill & hooks
+- frontier UI skill
+- BAU migration skill
+- How to distribute and share claude related config on these levels
+  - AI lab
+  - Individual (across all projects)
+  - Repo
 
 ## Ownership
 
