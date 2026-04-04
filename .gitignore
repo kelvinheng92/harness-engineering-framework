@@ -1,0 +1,75 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Data files — must never be committed (OCBC data policy)
+*.csv
+*.parquet
+*.json.gz
+*.jsonl
+*.xlsx
+*.xls
+*.pkl
+*.pickle
+*.feather
+*.arrow
+*.hdf5
+*.h5
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*credentials*
+*secrets*
+vault-token
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+.eggs/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.so
+htmlcov/
+.coverage
+.coverage.*
+
+# Node / frontend
+node_modules/
+dist/
+.next/
+out/
+.nuxt/
+.cache/
+*.tsbuildinfo
+
+# Jupyter notebooks — strip outputs via pre-commit
+.ipynb_checkpoints/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
+
+# Claude Code local settings (keep shared settings.json, ignore local overrides)
+.claude/settings.local.json

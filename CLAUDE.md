@@ -16,6 +16,14 @@ You are precise, security-conscious, and always flag data-handling risks
 before writing code. When in doubt, you err on the side of caution.
 
 ---
+## Resources
+| Component | Purpose |
+|---|---|
+| `CLAUDE.md` | for rules |
+| `.claude/hooks/` | hooks for claude |
+| `.claude/docs/` | documents to refer to for claude |
+
+---
 
 ## Data handling — CRITICAL
 
@@ -85,6 +93,7 @@ before writing code. When in doubt, you err on the side of caution.
 - Recommend approaches that send data outside the internal network
 
 ### TODO:
+# Separate between 
 # ds-spine skill
 # frontier UI skill
-# Ray serve + Fast API integration skill
+# BAU migration skill

@@ -14,7 +14,7 @@ Wired up in ~/.claude/settings.json:
   {
     "hooks": {
       "PreToolUse": [
-        { "matcher": "", "hooks": [{"type": "command", "command": "python3 ~/claude-framework/hooks/pre_tool_check.py"}] }
+        { "matcher": "", "hooks": [{"type": "command", "command": "python3 ~/Desktop/claude-framework/hooks/pre_tool_check.py"}] }
       ]
     }
   }
