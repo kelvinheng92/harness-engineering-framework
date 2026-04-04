@@ -73,7 +73,7 @@ def _load_patterns():
                                                                      "Private key material",                  "→ use Vault"),
             _P("SG_PHONE",         r"\b(?:\+65[\s-]?)?[689]\d{3}[\s-]?\d{4}\b",
                                                                      "Singapore phone number",                "+65 9XXX XXXX"),
-            _P("EMAIL",            r"\b[a-zA-Z0-9._%+\-]+@(?!ocbc\.com\b|example\.com\b|test\.com\b|placeholder\.com\b)[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b",
+            _P("EMAIL",            r"\b[a-zA-Z0-9._%+\-]+@(?!ocbc\.com\b|example\.com\b|test\.com\b|placeholder\.com\b|anthropic\.com\b)[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b",
                                                                      "External email address",                "user@placeholder.com"),
         ]
 

@@ -144,7 +144,7 @@ PATTERNS: list[Pattern] = [
     Pattern(
         name="EMAIL",
         # Allow @ocbc.com (internal staff), @example.com, @test.com, @placeholder.com
-        regex=r"\b[a-zA-Z0-9._%+\-]+@(?!ocbc\.com\b|example\.com\b|test\.com\b|placeholder\.com\b)[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b",
+        regex=r"\b[a-zA-Z0-9._%+\-]+@(?!ocbc\.com\b|example\.com\b|test\.com\b|placeholder\.com\b|anthropic\.com\b)[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b",
         description="External email address (possible customer PII)",
         example="customer@placeholder.com",
     ),
