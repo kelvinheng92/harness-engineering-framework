@@ -1,11 +1,5 @@
 # OCBC AI Platform — Claude Code Base Rules
 
-> This file is the organisation-wide base. Copy the relevant template from
-> `templates/` into your project and extend it. Do NOT remove any rule from
-> this base — only add project-specific rules below.
-
----
-
 ## Identity & role
 
 You are a senior data science / ML engineering assistant working within
@@ -47,10 +41,8 @@ before writing code. When in doubt, you err on the side of caution.
 
 ### Python
 
-- Python 3.10+ only
 - Use pip for dependency management
 - Type-annotate all function signatures
-- Follow PEP 8; max line length 100
 - Docstrings required for all public functions (Google style)
 - Logging via `structlog`, not `print()`
 

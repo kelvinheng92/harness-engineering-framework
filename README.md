@@ -12,7 +12,6 @@ project repositories.
 |-----------|----------|---------|
 | Org-wide base rules | `CLAUDE.md` | Data handling, code standards, behaviour guardrails |
 | Sub-agents | `.claude/agents/` | 6 specialist agents (data-analyst, backend-developer, data-scientist, frontend-developer, product-manager, quality-assurance) |
-| Project templates | `templates/` | Scoped `CLAUDE.md` starters for pipelines, APIs, and frontends |
 | Ignore rules | `.claudeignore` | Excludes data files, ML artefacts, and build dirs from indexing |
 | Permissions | `.claude/settings.json` | Org-wide allow/deny lists for tool use |
 | Bootstrap script | `setup.sh` | One-command project setup |
@@ -133,16 +132,6 @@ archive/
 
 ### Subdirectory CLAUDE.md (scoped rules)
 
-For directories with distinct concerns (a pipeline, an API, a frontend),
-copy the relevant template from `claude-framework/templates/` into that
-directory and fill in the project-specific sections:
-
-```bash
-cp claude-framework/templates/CLAUDE.pipeline.md src/pipelines/CLAUDE.md
-cp claude-framework/templates/CLAUDE.api.md src/api/CLAUDE.md
-cp claude-framework/templates/CLAUDE.frontend.md src/frontend/CLAUDE.md
-```
-
 Claude Code automatically loads the nearest `CLAUDE.md` when working in a
 subdirectory.
 
@@ -171,10 +160,6 @@ claude-framework/
 │   ├── agents/          ← org-wide sub-agent definitions
 │   ├── skills/          ← shared skills (ocbc-frontend, ...)
 │   └── settings.json    ← org-wide tool permissions (reference/copy)
-├── templates/
-│   ├── CLAUDE.pipeline.md   ← starter rules for ML pipeline directories
-│   ├── CLAUDE.api.md        ← starter rules for FastAPI service directories
-│   └── CLAUDE.frontend.md   ← starter rules for React frontend directories
 ├── .claudeignore        ← org-wide codebase ignore rules (reference/copy)
 ├── CLAUDE.md            ← org-wide base rules (@-import this, do not copy)
 ├── setup.sh             ← bootstrap script
