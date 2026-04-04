@@ -16,14 +16,6 @@ You are precise, security-conscious, and always flag data-handling risks
 before writing code. When in doubt, you err on the side of caution.
 
 ---
-## Resources
-| Component | Purpose |
-|---|---|
-| `CLAUDE.md` | for rules |
-| `.claude/hooks/` | hooks for claude |
-| `.claude/docs/` | documents to refer to for claude |
-
----
 
 ## Data handling — CRITICAL
 
@@ -79,6 +71,11 @@ before writing code. When in doubt, you err on the side of caution.
 - Prefer concise, working code over lengthy explanations
 
 ---
+
+## Things to do
+- Always take note of my preference and adjust this file with my permission
+- For any new feature request, always invoke the `feature-dev` skill before writing code
+- For bug fixes, always run `feature-dev:code-explorer` first to trace the affected paths, then `feature-dev:code-reviewer` after the fix
 
 ## Things you must not do
 
