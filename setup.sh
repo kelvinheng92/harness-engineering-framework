@@ -6,8 +6,9 @@
 #
 # What it does:
 #   1. Creates .claude/agents/ and symlinks all org-wide agents into it
-#   2. Creates a starter CLAUDE.md that @-imports the org base rules
-#   3. Copies settings.json and .claudeignore as editable starting points
+#   2. Creates .claude/skills/ and symlinks all org-wide skills into it
+#   3. Creates a starter CLAUDE.md that @-imports the org base rules
+#   4. Copies settings.json and .claudeignore as editable starting points
 #
 # Run it once. Re-running is safe — it never overwrites files you've
 # already customised.
@@ -17,8 +18,9 @@ set -euo pipefail
 FRAMEWORK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(pwd)"
 CLAUDE_DIR="$PROJECT_ROOT/.claude"
+FRAMEWORK_VERSION="$(cat "$FRAMEWORK_DIR/VERSION" 2>/dev/null || echo "unknown")"
 
-echo "OCBC Claude Code Framework — project setup"
+echo "OCBC Claude Code Framework v$FRAMEWORK_VERSION — project setup"
 echo "Framework : $FRAMEWORK_DIR"
 echo "Project   : $PROJECT_ROOT"
 echo ""
@@ -28,13 +30,13 @@ mkdir -p "$CLAUDE_DIR/agents"
 
 linked=0
 for agent_src in "$FRAMEWORK_DIR/.claude/agents/"*.md; do
+    [ -e "$agent_src" ] || continue
     agent_name="$(basename "$agent_src")"
     agent_dst="$CLAUDE_DIR/agents/$agent_name"
 
     if [ -e "$agent_dst" ]; then
         echo "  [skip]   agents/$agent_name (already exists)"
     else
-        # Use a path relative to the symlink's location so it survives moves
         rel_src="$(python3 -c "import os; print(os.path.relpath('$agent_src', '$CLAUDE_DIR/agents'))")"
         ln -s "$rel_src" "$agent_dst"
         echo "  [linked] agents/$agent_name"
@@ -44,7 +46,28 @@ done
 echo "  $linked org agent(s) linked."
 echo ""
 
-# ── 2. CLAUDE.md ─────────────────────────────────────────────────────────────
+# ── 2. Skills ────────────────────────────────────────────────────────────────
+mkdir -p "$CLAUDE_DIR/skills"
+
+linked_skills=0
+for skill_src in "$FRAMEWORK_DIR/.claude/skills/"*/; do
+    [ -e "$skill_src" ] || continue
+    skill_name="$(basename "$skill_src")"
+    skill_dst="$CLAUDE_DIR/skills/$skill_name"
+
+    if [ -e "$skill_dst" ]; then
+        echo "  [skip]   skills/$skill_name (already exists)"
+    else
+        rel_src="$(python3 -c "import os; print(os.path.relpath('$skill_src', '$CLAUDE_DIR/skills'))")"
+        ln -s "$rel_src" "$skill_dst"
+        echo "  [linked] skills/$skill_name"
+        linked_skills=$((linked_skills + 1))
+    fi
+done
+echo "  $linked_skills org skill(s) linked."
+echo ""
+
+# ── 3. CLAUDE.md ─────────────────────────────────────────────────────────────
 CLAUDE_MD="$PROJECT_ROOT/CLAUDE.md"
 rel_framework="$(python3 -c "import os; print(os.path.relpath('$FRAMEWORK_DIR', '$PROJECT_ROOT'))")"
 
@@ -72,17 +95,19 @@ EOF
 fi
 echo ""
 
-# ── 3. settings.json ─────────────────────────────────────────────────────────
+# ── 4. settings.json ─────────────────────────────────────────────────────────
 SETTINGS="$CLAUDE_DIR/settings.json"
 if [ -f "$SETTINGS" ]; then
     echo "  [skip]   .claude/settings.json (already exists)"
 else
     cp "$FRAMEWORK_DIR/.claude/settings.json" "$SETTINGS"
-    echo "  [copied] .claude/settings.json — extend the allow/deny lists as needed"
+    # Record which framework version this was copied from
+    echo "# framework-version: $FRAMEWORK_VERSION" > "$CLAUDE_DIR/.settings-version"
+    echo "  [copied] .claude/settings.json (from framework v$FRAMEWORK_VERSION)"
 fi
 echo ""
 
-# ── 4. .claudeignore ─────────────────────────────────────────────────────────
+# ── 5. .claudeignore ─────────────────────────────────────────────────────────
 IGNORE="$PROJECT_ROOT/.claudeignore"
 if [ -f "$IGNORE" ]; then
     echo "  [skip]   .claudeignore (already exists)"
@@ -99,3 +124,6 @@ echo "  2. Edit .claude/settings.json — add any project-specific allow/deny ru
 echo "  3. Add project-specific agents to .claude/agents/ alongside the symlinks"
 echo "  4. Copy a template from $rel_framework/templates/ into any subdirectory"
 echo "     that needs scoped rules (e.g. src/pipelines/CLAUDE.md)"
+echo ""
+echo "To check for settings drift after future framework updates, run:"
+echo "  bash $rel_framework/check-sync.sh"

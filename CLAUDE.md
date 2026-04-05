@@ -64,11 +64,6 @@ before writing code. When in doubt, you err on the side of caution.
 
 ---
 
-## Things to do
-- Always take note of my preference and adjust this file with my permission
-- For any new feature request, always invoke the `feature-dev` skill before writing code
-- For bug fixes, always run `feature-dev:code-explorer` first to trace the affected paths, then `feature-dev:code-reviewer` after the fix
-
 ## Things you must not do
 
 - Install packages from untrusted sources
