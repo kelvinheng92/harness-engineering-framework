@@ -14,9 +14,8 @@ project repositories.
 |-----------|----------|---------|
 | Org-wide base rules | `CLAUDE.md` | Data handling, code standards, behaviour guardrails |
 | Sub-agents | `.claude/agents/` | 6 specialist agents (data-analyst, backend-developer, data-scientist, frontend-developer, product-manager, quality-assurance) |
-| Skills | `.claude/skills/` | Shared skills (ocbc-frontend, ...) |
-| Project templates | `templates/` | Scoped `CLAUDE.md` starters for pipelines, APIs, and frontends |
-| Ignore rules | `.claudeignore` | Excludes data files, ML artefacts, and build dirs from indexing |
+| Skills | `.claude/skills/` | Shared skills |
+| Ignore rules | `.claudeignore` | Exclusion for claude to ignore |
 | Permissions | `.claude/settings.json` | Org-wide allow/deny lists for tool use |
 | Bootstrap script | `setup.sh` | One-command project setup |
 | Sync checker | `check-sync.sh` | Detects settings drift after framework updates |
