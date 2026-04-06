@@ -48,7 +48,7 @@ before writing code. When in doubt, you err on the side of caution.
 
 ### Git
 
-- Always check out feature or fix branches before commit code
+- Always check out feature or fix branches before making changes and committing code
 - Branch naming: `feat/`, `fix/` prefixes
 - Commit messages follow Conventional Commits
 - No secrets or data files committed — `.gitignore` must cover `*.csv`,
