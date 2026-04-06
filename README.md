@@ -17,8 +17,7 @@ project repositories.
 | Skills | `.claude/skills/` | Shared skills |
 | Ignore rules | `.claudeignore` | Exclusion for claude to ignore |
 | Permissions | `.claude/settings.json` | Org-wide allow/deny lists for tool use |
-| Bootstrap script | `setup.sh` | One-command project setup |
-| Sync checker | `check-sync.sh` | Detects settings drift after framework updates |
+| Management script | `harness.sh` | Bootstrap (`setup`) and drift detection (`sync`) |
 
 ---
 
@@ -36,7 +35,7 @@ git submodule update --init --recursive
 ### 2. Run the bootstrap script
 
 ```bash
-bash claude-framework/setup.sh
+bash claude-framework/harness.sh
 ```
 
 This creates or updates the following in your project (never overwrites files
@@ -85,7 +84,7 @@ receive updates when the framework is upgraded.
 
 ### Agents
 
-`setup.sh` creates symlinks in `.claude/agents/` pointing to the org agents.
+`harness.sh setup` creates symlinks in `.claude/agents/` pointing to the org agents.
 To add a project-specific agent, create a new `.md` file directly in
 `.claude/agents/` alongside the symlinks:
 
@@ -101,12 +100,12 @@ the same name. Your file will be used instead.
 
 ### Skills
 
-`setup.sh` symlinks org-wide skills into `.claude/skills/`. Add project-specific
+`harness.sh setup` symlinks org-wide skills into `.claude/skills/`. Add project-specific
 skills alongside them the same way as agents.
 
 ### settings.json
 
-`setup.sh` copies `.claude/settings.json` into your project. Edit it freely —
+`harness.sh setup` copies `.claude/settings.json` into your project. Edit it freely —
 extend the `allow` and `deny` lists with project-specific tool permissions:
 
 ```json
@@ -129,7 +128,7 @@ org baseline reflect security decisions and must be respected.
 
 ### .claudeignore
 
-`setup.sh` copies `.claudeignore` into your project. Add project-specific
+`harness.sh setup` copies `.claudeignore` into your project. Add project-specific
 patterns beneath the org defaults:
 
 ```
@@ -203,7 +202,7 @@ After updating the submodule, run the sync checker to see what changed in
 the org baseline that you may need to merge into your project copies:
 
 ```bash
-bash claude-framework/check-sync.sh
+bash claude-framework/harness.sh sync
 ```
 
 It diffs your `settings.json` and `.claudeignore` against the framework
@@ -243,8 +242,7 @@ claude-framework/
 ├── CLAUDE.md                ← org-wide base rules (@-import this, do not copy)
 ├── CHANGELOG.md             ← version history
 ├── VERSION                  ← current version number
-├── setup.sh                 ← bootstrap script (run once per project)
-├── check-sync.sh            ← drift detector (run after framework updates)
+├── harness.sh               ← setup + sync in one script
 └── README.md
 ```
 
