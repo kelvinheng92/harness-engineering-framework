@@ -34,6 +34,7 @@
   },
   "model": "claude-sonnet-4-6",
   "enabledPlugins": {
-    "everything-claude-code@everything-claude-code": true
+    "everything-claude-code@everything-claude-code": true,
+    "feature-dev@claude-plugins-official": true
   }
 }
