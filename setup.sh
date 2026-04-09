@@ -125,5 +125,3 @@ echo "  3. Add project-specific agents to .claude/agents/ alongside the symlinks
 echo "  4. Copy a template from $rel_framework/templates/ into any subdirectory"
 echo "     that needs scoped rules (e.g. src/pipelines/CLAUDE.md)"
 echo ""
-echo "To check for settings drift after future framework updates, run:"
-echo "  bash $rel_framework/check-sync.sh"
