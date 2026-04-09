@@ -29,7 +29,7 @@ echo ""
 mkdir -p "$CLAUDE_DIR/agents"
 
 linked=0
-for agent_src in "$FRAMEWORK_DIR/.claude/agents/"*.md; do
+for agent_src in "$FRAMEWORK_DIR/01-agents/"*.md; do
     [ -e "$agent_src" ] || continue
     agent_name="$(basename "$agent_src")"
     agent_dst="$CLAUDE_DIR/agents/$agent_name"
@@ -50,7 +50,7 @@ echo ""
 mkdir -p "$CLAUDE_DIR/skills"
 
 linked_skills=0
-for skill_src in "$FRAMEWORK_DIR/.claude/skills/"*/; do
+for skill_src in "$FRAMEWORK_DIR/03-skills/"*/; do
     [ -e "$skill_src" ] || continue
     skill_name="$(basename "$skill_src")"
     skill_dst="$CLAUDE_DIR/skills/$skill_name"
@@ -122,6 +122,6 @@ echo "Setup complete. Next steps:"
 echo "  1. Edit CLAUDE.md — fill in the project identity section"
 echo "  2. Edit .claude/settings.json — add any project-specific allow/deny rules"
 echo "  3. Add project-specific agents to .claude/agents/ alongside the symlinks"
-echo "  4. Copy a template from $rel_framework/templates/ into any subdirectory"
+echo "  4. Copy a template from $rel_framework/02-memory/templates/ into any subdirectory"
 echo "     that needs scoped rules (e.g. src/pipelines/CLAUDE.md)"
 echo ""
