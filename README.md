@@ -25,10 +25,11 @@ Centralised standards and tooling for safe, consistent Claude Code use across th
 
 | Module | Contents |
 |--------|----------|
-| [`01-agents/`](01-agents/) | 6 specialist sub-agents (data-analyst, backend-developer, data-scientist, frontend-developer, product-manager, quality-assurance) |
-| [`02-memory/`](02-memory/) | Org base rules, memory layering guide, CLAUDE.md templates |
-| [`03-skills/`](03-skills/) | Shared skills (ocbc-frontend) |
-| [`04-hooks/`](04-hooks/) | Hook event reference and configuration guide |
+| [`agents/`](agents/) | 6 specialist sub-agents (data-analyst, backend-developer, data-scientist, frontend-developer, product-manager, quality-assurance) |
+| [`memory/`](memory/) | Org base rules, memory layering guide, CLAUDE.md templates |
+| [`rules/`](rules/) | Structured constraint definitions (data handling, code standards, hard limits) |
+| [`skills/`](skills/) | Shared skills (ocbc-frontend) |
+| [`hooks/`](hooks/) | Hook event reference and configuration guide |
 | [`CATALOG.md`](CATALOG.md) | Full feature reference with trigger phrases and settings |
 | [`.claude/settings.json`](.claude/settings.json) | Org-wide tool allow/deny lists |
 | `.claudeignore` | Files Claude should never read |
@@ -91,10 +92,11 @@ Never copy the org base content — always import so you get updates automatical
 
 | Module | Read when… |
 |--------|-----------|
-| [`01-agents/`](01-agents/) | You want to understand the 6 agents, add a project agent, or override an org agent |
-| [`02-memory/`](02-memory/) | You want to understand memory layering or create subdirectory `CLAUDE.md` files |
-| [`03-skills/`](03-skills/) | You want to understand the ocbc-frontend skill or add a new skill |
-| [`04-hooks/`](04-hooks/) | You want to add automation hooks to your project |
+| [`agents/`](agents/) | You want to understand the 6 agents, add a project agent, or override an org agent |
+| [`memory/`](memory/) | You want to understand memory layering or create subdirectory `CLAUDE.md` files |
+| [`rules/`](rules/) | You want to define or reference explicit constraints for data handling, coding, or hard limits |
+| [`skills/`](skills/) | You want to understand the ocbc-frontend skill or add a new skill |
+| [`hooks/`](hooks/) | You want to add automation hooks to your project |
 
 ---
 
@@ -107,7 +109,7 @@ Never copy the org base content — always import so you get updates automatical
 **Subdirectory rules** — copy a template and place it next to the relevant code:
 
 ```bash
-cp claude-framework/02-memory/templates/CLAUDE.pipeline.md src/pipelines/CLAUDE.md
+cp claude-framework/memory/templates/CLAUDE.pipeline.md src/pipelines/CLAUDE.md
 ```
 
 ---
@@ -132,11 +134,12 @@ git commit -m "chore: update claude-framework to v1.0.0"
 
 ```
 claude-framework/
-├── 01-agents/           ← 6 org-wide agent definitions + README
-├── 02-memory/           ← memory layering guide + CLAUDE.md templates
+├── agents/              ← 6 org-wide agent definitions + README
+├── memory/              ← memory layering guide + CLAUDE.md templates
 │   └── templates/       ← CLAUDE.pipeline.md, CLAUDE.api.md, CLAUDE.frontend.md
-├── 03-skills/           ← shared skills (ocbc-frontend) + README
-├── 04-hooks/            ← hook event reference + README
+├── rules/               ← constraint definitions (data handling, code standards, hard limits)
+├── skills/              ← shared skills (ocbc-frontend) + README
+├── hooks/               ← hook event reference + README
 ├── .claude/
 │   └── settings.json    ← org permissions baseline (copy via setup.sh)
 ├── .claudeignore        ← org ignore rules (copy via setup.sh)

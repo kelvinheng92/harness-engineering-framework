@@ -17,7 +17,7 @@ Six specialist agents, automatically invoked by context. Symlinked into `.claude
 | `product-manager` | sonnet | "write a PRD", "user stories", "acceptance criteria", "prioritise the backlog" |
 | `quality-assurance` | sonnet | "write tests", "test plan", "pytest", "review this code", "find bugs", "data validation" |
 
-Source: [`01-agents/`](01-agents/)
+Source: [`agents/`](agents/)
 
 ---
 
@@ -29,7 +29,7 @@ Reusable capabilities auto-invoked by trigger phrases. Symlinked into `.claude/s
 |-------|----------------|-----------------|
 | `ocbc-frontend` | "build a component", "OCBC UI", "dashboard", "RM portal", "internal tool frontend" | OCBC design tokens, `@ocbc-internal/ui` first, React/TypeScript constraints, PII masking, WCAG AA |
 
-Source: [`03-skills/`](03-skills/)
+Source: [`skills/`](skills/)
 
 ---
 
@@ -45,9 +45,23 @@ Org base rules imported via `@claude-framework/CLAUDE.md`. Covers:
 | **Claude behaviour** | Flag security/compliance concerns before writing code; show full file paths |
 | **Hard limits** | No auth bypass, no logging suppression, no external data egress |
 
-Templates for scoped subdirectory rules: [`02-memory/templates/`](02-memory/templates/)
+Templates for scoped subdirectory rules: [`memory/templates/`](memory/templates/)
 
-Source: [`02-memory/`](02-memory/) · [`CLAUDE.md`](CLAUDE.md)
+Source: [`memory/`](memory/) · [`CLAUDE.md`](CLAUDE.md)
+
+---
+
+## Rules
+
+Structured constraint definitions that can be versioned and `@`-imported into any `CLAUDE.md`.
+
+| File | Covers |
+|------|--------|
+| `data-handling.md` | PII, credentials, and data egress constraints |
+| `code-standards.md` | Python, Git, and general coding constraints |
+| `hard-limits.md` | Prohibited actions (auth bypass, logging suppression, external egress) |
+
+Source: [`rules/`](rules/)
 
 ---
 
@@ -55,7 +69,7 @@ Source: [`02-memory/`](02-memory/) · [`CLAUDE.md`](CLAUDE.md)
 
 Hooks run automatically at Claude Code lifecycle events. No org-wide hooks are defined yet — add project-specific hooks to your project's `.claude/hooks/`.
 
-See [`04-hooks/`](04-hooks/) for event types and configuration reference.
+See [`hooks/`](hooks/) for event types and configuration reference.
 
 ---
 
