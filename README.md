@@ -10,6 +10,7 @@ Centralised standards and tooling for safe, consistent Claude Code use across th
 
 ## Table of Contents
 
+- [Why a Harness?](#why-a-harness)
 - [What's Included](#whats-included)
 - [Quick Start](#quick-start)
 - [How It Works](#how-it-works)
@@ -18,6 +19,22 @@ Centralised standards and tooling for safe, consistent Claude Code use across th
 - [Customising](#customising)
 - [Updating](#updating)
 - [Structure](#structure)
+
+---
+
+## Why a Harness?
+
+Back-and-forth prompting works for personal productivity. It breaks down at team scale in a regulated environment: every new session starts from zero, compliance guardrails depend on whoever remembers to ask, and one engineer's conventions are invisible to another's.
+
+The harness makes Claude's behaviour **consistent, accountable, and updatable across the whole team** — without repeating context in every chat.
+
+| | Ad-hoc prompting | This harness |
+|---|---|---|
+| Session context | Re-stated each time | Loaded automatically via `CLAUDE.md` |
+| Compliance coverage | Best-effort, per engineer | Structural — enforced by rules and hooks |
+| Domain expertise | Generalist answers | Specialist agents (ML, backend, data, QA…) |
+| Onboarding a new engineer | Tribal knowledge transfer | `git clone` + `bash setup.sh` |
+| Updating a rule | Tell everyone, hope it sticks | One commit, one `git pull` |
 
 ---
 
