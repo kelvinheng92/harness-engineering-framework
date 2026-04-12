@@ -1,255 +1,172 @@
 # OCBC AI Platform — Claude Code Framework
 
-Centralised standards and tooling for safe, consistent Claude Code use across
-the OCBC Data Science team. Consumed as a **git submodule** by individual
-project repositories.
+[![Version](https://img.shields.io/badge/version-1.0.0-brightgreen)](CHANGELOG.md)
 
-**Current version:** see [`VERSION`](./VERSION) — [`CHANGELOG`](./CHANGELOG.md)
+Centralised standards and tooling for safe, consistent Claude Code use across the OCBC Data Science team. Used as a **git submodule** by project repos.
 
----
-
-## What this framework provides
-
-| Component | Location | Purpose |
-|-----------|----------|---------|
-| Org-wide base rules | `CLAUDE.md` | Data handling, code standards, behaviour guardrails |
-| Sub-agents | `.claude/agents/` | 6 specialist agents (data-analyst, backend-developer, data-scientist, frontend-developer, product-manager, quality-assurance) |
-| Skills | `.claude/skills/` | Shared skills |
-| Ignore rules | `.claudeignore` | Exclusion for claude to ignore |
-| Permissions | `.claude/settings.json` | Org-wide allow/deny lists for tool use |
-| Bootstrap script | `setup.sh` | One-command project setup |
-| Sync checker | `check-sync.sh` | Detects settings drift after framework updates |
+**[Browse the full feature catalog →](CATALOG.md)**
 
 ---
 
-## Quick start
+## Table of Contents
 
-### 1. Add as a submodule
+- [Why a Harness?](#why-a-harness)
+- [What's Included](#whats-included)
+- [Quick Start](#quick-start)
+- [How It Works](#how-it-works)
+- [Org Rules Overview](#org-rules-overview)
+- [Module Guide](#module-guide)
+- [Customising](#customising)
+- [Updating](#updating)
+- [Structure](#structure)
 
-From your project root:
+---
+
+## Why a Harness?
+
+Back-and-forth prompting works for personal productivity. It breaks down at team scale in a regulated environment: every new session starts from zero, compliance guardrails depend on whoever remembers to ask, and one engineer's conventions are invisible to another's.
+
+The harness makes Claude's behaviour **consistent, accountable, and updatable across the whole team** — without repeating context in every chat.
+
+| | Ad-hoc prompting | This harness |
+|---|---|---|
+| Session context | Re-stated each time | Loaded automatically via `CLAUDE.md` |
+| Compliance coverage | Best-effort, per engineer | Structural — enforced by rules and hooks |
+| Domain expertise | Generalist answers | Specialist agents (ML, backend, data, QA…) |
+| Onboarding a new engineer | Tribal knowledge transfer | `git clone` + `bash setup.sh` |
+| Updating a rule | Tell everyone, hope it sticks | One commit, one `git pull` |
+
+---
+
+## What's Included
+
+| Module | Contents |
+|--------|----------|
+| [`agents/`](agents/) | 6 specialist sub-agents (data-analyst, backend-developer, data-scientist, frontend-developer, product-manager, quality-assurance) |
+| [`memory/`](memory/) | Org base rules, memory layering guide, CLAUDE.md templates |
+| [`rules/`](rules/) | Structured constraint definitions (data handling, code standards, hard limits) |
+| [`skills/`](skills/) | Shared skills (ocbc-frontend) |
+| [`hooks/`](hooks/) | Hook event reference and configuration guide |
+| [`CATALOG.md`](CATALOG.md) | Full feature reference with trigger phrases and settings |
+| [`.claude/settings.json`](.claude/settings.json) | Org-wide tool allow/deny lists |
+| `.claudeignore` | Files Claude should never read |
+| `setup.sh` | One-command project bootstrap |
+
+---
+
+## Quick Start
 
 ```bash
+# 1. Add as submodule
 git submodule add git@github.com:kelvinheng92/harness-engineering-framework.git claude-framework
 git submodule update --init --recursive
-```
 
-### 2. Run the bootstrap script
-
-```bash
+# 2. Bootstrap your project
 bash claude-framework/setup.sh
 ```
 
-This creates or updates the following in your project (never overwrites files
-you have already customised):
-
-- `.claude/agents/` — symlinks to all org-wide agents
-- `.claude/skills/` — symlinks to all org-wide skills
-- `CLAUDE.md` — starter file that `@`-imports the org base rules
-- `.claude/settings.json` — editable copy of the org permissions
-- `.claudeignore` — editable copy of the org ignore rules
-
-### 3. Verify
-
-Open Claude Code in your project. Run `/agents` to confirm the org agents are
-visible. Check that `CLAUDE.md` loads without errors.
+`setup.sh` symlinks agents and skills into `.claude/`, and copies `settings.json`, `.claudeignore`, and a starter `CLAUDE.md` — without overwriting anything you've already customised.
 
 ---
 
-## How layering works
-
-Claude Code loads configuration at multiple levels. The framework sits at the
-bottom of the stack; project files override it layer by layer.
+## How It Works
 
 ```
-~/.claude/CLAUDE.md               ← user-level (personal preferences)
-         │
-<project>/CLAUDE.md               ← project-level (your file, @-imports org base)
-         │   └── @claude-framework/CLAUDE.md   ← org base rules (this repo)
-         │
-<project>/src/pipelines/CLAUDE.md ← subdirectory-level (scoped rules)
+~/.claude/CLAUDE.md               ← user-level (personal preferences, all projects)
+<project>/CLAUDE.md               ← project-level (@-imports org base below)
+  └── @claude-framework/CLAUDE.md ← org base rules (this repo)
+<project>/src/X/CLAUDE.md         ← subdirectory-level (scoped overrides)
 ```
 
-### CLAUDE.md
-
-Your project `CLAUDE.md` imports the org base with a single line:
+Your project `CLAUDE.md` imports the org base, then adds project rules below it:
 
 ```markdown
 @claude-framework/CLAUDE.md
+
+## Project-specific rules
+<!-- Add rules that apply only to this repo -->
 ```
 
-Add project-specific rules **below** the import. Rules in your file take
-precedence over imported rules for conflicting instructions.
-
-Do **not** copy the org base content into your file — always import it so you
-receive updates when the framework is upgraded.
-
-### Agents
-
-`setup.sh` creates symlinks in `.claude/agents/` pointing to the org agents.
-To add a project-specific agent, create a new `.md` file directly in
-`.claude/agents/` alongside the symlinks:
-
-```
-.claude/agents/
-├── data-analyst.md       ← symlink → org agent (do not edit)
-├── backend-developer.md  ← symlink → org agent (do not edit)
-└── credit-risk-model.md  ← your project-specific agent (add here)
-```
-
-To **override** an org agent, delete its symlink and create your own file with
-the same name. Your file will be used instead.
-
-### Skills
-
-`setup.sh` symlinks org-wide skills into `.claude/skills/`. Add project-specific
-skills alongside them the same way as agents.
-
-### settings.json
-
-`setup.sh` copies `.claude/settings.json` into your project. Edit it freely —
-extend the `allow` and `deny` lists with project-specific tool permissions:
-
-```json
-{
-  "permissions": {
-    "allow": [
-      "Bash(git:*)",
-      "...all org defaults...",
-      "Bash(your-internal-tool:*)"
-    ],
-    "deny": [
-      "...org defaults..."
-    ]
-  }
-}
-```
-
-Do **not** remove org `deny` entries — only add to them. New deny rules in the
-org baseline reflect security decisions and must be respected.
-
-### .claudeignore
-
-`setup.sh` copies `.claudeignore` into your project. Add project-specific
-patterns beneath the org defaults:
-
-```
-# (org defaults above — do not remove)
-
-# Project-specific exclusions
-reports/
-archive/
-*.custom-ext
-```
-
-### Subdirectory CLAUDE.md (scoped rules)
-
-For directories with distinct concerns (a pipeline, an API, a frontend),
-copy the relevant template from `claude-framework/templates/` and fill in the
-project-specific sections:
-
-```bash
-cp claude-framework/templates/CLAUDE.pipeline.md src/pipelines/CLAUDE.md
-cp claude-framework/templates/CLAUDE.api.md src/api/CLAUDE.md
-cp claude-framework/templates/CLAUDE.frontend.md src/frontend/CLAUDE.md
-```
-
-Claude Code automatically loads the nearest `CLAUDE.md` when working in a
-subdirectory.
+Never copy the org base content — always import so you get updates automatically.
 
 ---
 
-## User-level configuration
+## Org Rules Overview
 
-There are three distinct levels of Claude Code configuration. Each has a
-different scope and owner:
+`CLAUDE.md` enforces the following across all projects that import it:
 
-| Level | Location | Controls |
-|-------|----------|---------|
-| **User** | `~/.claude/CLAUDE.md` | Personal working style, tone, shortcuts — applies across all projects |
-| **User** | `~/.claude/settings.local.json` | Personal tool permissions — applies across all projects |
-| **Project** | `<project>/CLAUDE.md` | Project rules + `@`-import of org base |
-| **Project** | `<project>/.claude/settings.json` | Org baseline + project-specific allows/denies |
-| **Subdirectory** | `<project>/src/X/CLAUDE.md` | Scoped rules for a specific area of the repo |
+| Area | Rules |
+|------|-------|
+| **Data handling** | Never output PII, account numbers, UENs, credentials, or transaction data — even synthetic-looking values. Hardcoded secrets must be moved to Vault/env vars. |
+| **Python** | Type annotations on all functions, Google-style docstrings, `structlog` for logging, `pip` for deps |
+| **Git** | `feat/`/`fix/` branch prefixes, Conventional Commits, no data files or secrets committed |
+| **Claude behaviour** | Flag security/compliance concerns before writing code; show full file paths; prefer working code |
+| **Hard limits** | No bypassing auth/audit logging, no suppressing logs, no sending data outside the internal network |
 
-Keep `~/.claude/CLAUDE.md` to personal preferences only — never put org rules
-or project rules there, as they would leak into every project you work on.
+---
 
-**Example `~/.claude/CLAUDE.md`:**
+## Module Guide
 
-```markdown
-# Personal preferences
-- I prefer terse responses — skip preamble, get to the code
-- When in doubt about scope, ask one focused question before proceeding
-- Default to structlog for any new logging I write
+| Module | Read when… |
+|--------|-----------|
+| [`agents/`](agents/) | You want to understand the 6 agents, add a project agent, or override an org agent |
+| [`memory/`](memory/) | You want to understand memory layering or create subdirectory `CLAUDE.md` files |
+| [`rules/`](rules/) | You want to define or reference explicit constraints for data handling, coding, or hard limits |
+| [`skills/`](skills/) | You want to understand the ocbc-frontend skill or add a new skill |
+| [`hooks/`](hooks/) | You want to add automation hooks to your project |
+
+---
+
+## Customising
+
+**Add a project agent** — drop a `.md` file into your project's `.claude/agents/` alongside the symlinks.  
+**Override an org agent** — delete its symlink and create your own file with the same name.  
+**Extend permissions** — add to `allow`/`deny` in `.claude/settings.json`; never remove org `deny` entries.  
+**Extend ignores** — append patterns to `.claudeignore` below the org defaults.  
+**Subdirectory rules** — copy a template and place it next to the relevant code:
+
+```bash
+cp claude-framework/memory/templates/CLAUDE.pipeline.md src/pipelines/CLAUDE.md
 ```
 
 ---
 
-## Keeping the framework up to date
-
-### Pull the latest version
+## Updating
 
 ```bash
-cd claude-framework && git fetch && git checkout v1.0.0   # pin to a tag
-# or: git checkout main                                   # always latest
-cd ..
-git add claude-framework
+cd claude-framework && git fetch && git checkout v1.0.0
+cd .. && git add claude-framework
 git commit -m "chore: update claude-framework to v1.0.0"
 ```
 
-### Check for settings drift
-
-After updating the submodule, run the sync checker to see what changed in
-the org baseline that you may need to merge into your project copies:
-
-```bash
-bash claude-framework/check-sync.sh
-```
-
-It diffs your `settings.json` and `.claudeignore` against the framework
-baseline, checks for broken agent/skill symlinks, and lists any new org
-agents or skills not yet linked into your project.
-
-Pay particular attention to **new `deny` rules** in `settings.json` — these
-reflect org security decisions and should be merged into your copy.
-
-### Versioning
-
-This framework uses [Semantic Versioning](https://semver.org/):
-
-- **Patch** (`1.0.x`) — safe to pull anytime: wording fixes, new agents/skills
-- **Minor** (`1.x.0`) — review `CHANGELOG.md` before merging: new deny rules or
-  behaviour changes
-- **Major** (`x.0.0`) — breaking change; coordinate with AI Lab before upgrading
-
-The current version is in [`VERSION`](./VERSION). The version your project's
-`settings.json` was copied from is recorded in `.claude/.settings-version`.
+| Bump | Meaning | Action |
+|------|---------|--------|
+| Patch `1.0.x` | Fixes, new agents/skills | Pull freely |
+| Minor `1.x.0` | New deny rules or behaviour changes | Review `CHANGELOG.md` |
+| Major `x.0.0` | Breaking changes | Coordinate with AI Lab |
 
 ---
 
-## Repository structure
+## Structure
 
 ```
 claude-framework/
+├── agents/              ← 6 org-wide agent definitions + README
+├── memory/              ← memory layering guide + CLAUDE.md templates
+│   └── templates/       ← CLAUDE.pipeline.md, CLAUDE.api.md, CLAUDE.frontend.md
+├── rules/               ← constraint definitions (data handling, code standards, hard limits)
+├── skills/              ← shared skills (ocbc-frontend) + README
+├── hooks/               ← hook event reference + README
 ├── .claude/
-│   ├── agents/              ← org-wide sub-agent definitions
-│   ├── skills/              ← shared skills (ocbc-frontend, ...)
-│   └── settings.json        ← org-wide tool permissions (copy via setup.sh)
-├── templates/
-│   ├── CLAUDE.pipeline.md   ← starter rules for ML pipeline directories
-│   ├── CLAUDE.api.md        ← starter rules for FastAPI service directories
-│   └── CLAUDE.frontend.md   ← starter rules for React frontend directories
-├── .claudeignore            ← org-wide codebase ignore rules (copy via setup.sh)
-├── CLAUDE.md                ← org-wide base rules (@-import this, do not copy)
-├── CHANGELOG.md             ← version history
-├── VERSION                  ← current version number
-├── setup.sh                 ← bootstrap script (run once per project)
-├── check-sync.sh            ← drift detector (run after framework updates)
-└── README.md
+│   └── settings.json    ← org permissions baseline (copy via setup.sh)
+├── .claudeignore        ← org ignore rules (copy via setup.sh)
+├── CATALOG.md           ← full feature reference
+├── CLAUDE.md            ← org base rules (@-import, do not copy)
+├── CHANGELOG.md
+├── VERSION
+└── setup.sh
 ```
 
 ---
-
-## Ownership
 
 Maintained by the OCBC AI Lab. Raise issues or PRs via GitHub.
