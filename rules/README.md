@@ -11,9 +11,7 @@ Rules complement `CLAUDE.md` memory by providing explicit, structured constraint
 ```
 rules/
 ├── README.md          ← this file
-├── data-handling.md   ← PII, credentials, and data egress constraints
-├── code-standards.md  ← Python, Git, and general coding constraints
-└── hard-limits.md     ← Prohibited actions (auth bypass, logging suppression, etc.)
+└── code-standards.md  ← Python, Git, and general coding constraints
 ```
 
 ## How to use
@@ -21,8 +19,7 @@ rules/
 Reference rules from your project `CLAUDE.md` or subdirectory `CLAUDE.md` files using `@`-imports:
 
 ```markdown
-@claude-framework/rules/data-handling.md
-@claude-framework/rules/hard-limits.md
+@claude-framework/rules/code-standards.md
 ```
 
 ## Adding project-specific rules

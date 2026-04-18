@@ -39,6 +39,8 @@ before writing code. When in doubt, you err on the side of caution.
 
 ## Code standards
 
+@rules/code-standards.md
+
 ### Python
 
 - Use pip for dependency management
@@ -48,7 +50,8 @@ before writing code. When in doubt, you err on the side of caution.
 
 ### Git
 
-- Always check out feature or fix branches before making changes and committing code
+- **Always check what branch you are on before editing any file**
+- If on `staging` or `main`, create a `feat/` or `fix/` branch first — no exceptions
 - Branch naming: `feat/`, `fix/` prefixes
 - Commit messages follow Conventional Commits
 - No secrets or data files committed — `.gitignore` must cover `*.csv`,
