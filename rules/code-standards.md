@@ -27,6 +27,12 @@ including small doc fixes, config tweaks, and chores.
 - Logging via `structlog`, not `print()`
 - Use pip for dependency management
 
+## Pull requests
+
+- Always create a PR with a descriptive title and body — never push directly to `staging` or `main`
+- PR body must include: a **Summary** (bullet list of what changed and why), **Template/detail changes** where relevant, and a **Test plan** checklist
+- Target branch is `staging` unless explicitly told otherwise
+
 ## Commits
 
 - Follow Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`
