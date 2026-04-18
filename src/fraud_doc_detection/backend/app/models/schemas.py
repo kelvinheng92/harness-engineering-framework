@@ -3,12 +3,28 @@ from typing import Optional, List, Literal
 from enum import Enum
 
 
+# ─── Shared ──────────────────────────────────────────────────────────────────
+
 class IndicatorSeverity(str, Enum):
     HIGH = "high"
     MEDIUM = "medium"
     LOW = "low"
     SAFE = "safe"
 
+
+class DocumentType(str, Enum):
+    BANK_STATEMENT = "bank_statement"
+    ANNUAL_REPORT = "annual_report"
+    INCOME_TAX = "income_tax"
+    PAYSLIP = "payslip"
+    CPF_STATEMENT = "cpf_statement"
+    INVESTMENT_STATEMENT = "investment_statement"
+    CREDIT_REPORT = "credit_report"
+    FINANCIAL_STATEMENT = "financial_statement"
+    OTHER = "other"
+
+
+# ─── Fraud Detection ─────────────────────────────────────────────────────────
 
 class FraudIndicator(BaseModel):
     id: str
@@ -53,6 +69,8 @@ class AnalysisResult(BaseModel):
     analyzed_at: str
 
 
+# ─── Upload / Document List ───────────────────────────────────────────────────
+
 class UploadResponse(BaseModel):
     document_id: str
     filename: str
@@ -67,3 +85,58 @@ class DocumentListItem(BaseModel):
     overall_risk: Optional[IndicatorSeverity] = None
     fraud_score: Optional[float] = None
     analyzed: bool = False
+    document_type: Optional[DocumentType] = None
+
+
+# ─── Classification ──────────────────────────────────────────────────────────
+
+class ClassificationResult(BaseModel):
+    document_id: str
+    document_type: DocumentType
+    confidence: float
+    reason: str
+
+
+# ─── Key-Value Extraction ────────────────────────────────────────────────────
+
+class KeyValuePair(BaseModel):
+    key: str
+    value: str
+    category: str
+
+
+class KVExtractionResult(BaseModel):
+    document_id: str
+    document_type: DocumentType
+    pairs: List[KeyValuePair]
+    extracted_at: str
+
+
+# ─── Document Q&A ────────────────────────────────────────────────────────────
+
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+    timestamp: str
+
+
+class QARequest(BaseModel):
+    question: str
+
+
+class QAResponse(BaseModel):
+    answer: str
+    timestamp: str
+    history: List[ChatMessage]
+
+
+# ─── Settings ────────────────────────────────────────────────────────────────
+
+class ApiKeyRequest(BaseModel):
+    api_key: str
+    provider: str = ""
+
+
+class StatusResponse(BaseModel):
+    gemini_configured: bool   # kept for frontend compat
+    provider: str = "groq"
