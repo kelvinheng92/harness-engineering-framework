@@ -1,4 +1,14 @@
 export type IndicatorSeverity = 'high' | 'medium' | 'low' | 'safe'
+export type DocumentType =
+  | 'bank_statement'
+  | 'annual_report'
+  | 'income_tax'
+  | 'payslip'
+  | 'cpf_statement'
+  | 'investment_statement'
+  | 'credit_report'
+  | 'financial_statement'
+  | 'other'
 
 export interface FraudIndicator {
   id: string
@@ -57,4 +67,42 @@ export interface DocumentListItem {
   overall_risk?: IndicatorSeverity
   fraud_score?: number
   analyzed: boolean
+  document_type?: DocumentType
+}
+
+export interface ClassificationResult {
+  document_id: string
+  document_type: DocumentType
+  confidence: number
+  reason: string
+}
+
+export interface KeyValuePair {
+  key: string
+  value: string
+  category: string
+}
+
+export interface KVExtractionResult {
+  document_id: string
+  document_type: DocumentType
+  pairs: KeyValuePair[]
+  extracted_at: string
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: string
+}
+
+export interface QAResponse {
+  answer: string
+  timestamp: string
+  history: ChatMessage[]
+}
+
+export interface StatusResponse {
+  gemini_configured: boolean
+  provider: string
 }
