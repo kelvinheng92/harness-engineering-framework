@@ -157,8 +157,16 @@ export function SettingsPage() {
       setActiveProvider(selectedProvider)
       setSaveMsg(`Saved. Now using ${PROVIDER_INFO[selectedProvider].label}.`)
       setApiKey('')
-    } catch {
-      setSaveMsg('Failed to save. Check the backend is running.')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } }; code?: string; message?: string }
+      if (axiosErr.code === 'ECONNABORTED') {
+        setSaveMsg('Request timed out. Is the backend running on port 8000?')
+      } else if (axiosErr.code === 'ERR_NETWORK') {
+        setSaveMsg('Cannot reach backend. Start the server with: uvicorn app.main:app --reload')
+      } else {
+        const detail = axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Unknown error'
+        setSaveMsg(`Failed to save: ${detail}`)
+      }
     } finally {
       setSaving(false)
     }

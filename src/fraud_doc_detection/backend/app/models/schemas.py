@@ -99,6 +99,10 @@ class ClassificationResult(BaseModel):
 
 # ─── Key-Value Extraction ────────────────────────────────────────────────────
 
+class ExtractionRequest(BaseModel):
+    additional_keys: List[str] = []
+
+
 class KeyValuePair(BaseModel):
     key: str
     value: str

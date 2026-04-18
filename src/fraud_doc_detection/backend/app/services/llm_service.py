@@ -277,8 +277,11 @@ def classify_document(pdf_path: str) -> dict[str, Any]:
     return _parse_json(raw)
 
 
-def extract_key_values(pdf_path: str, doc_type: str) -> dict[str, Any]:
+def extract_key_values(pdf_path: str, doc_type: str, additional_keys: "list[str] | None" = None) -> dict[str, Any]:
     prompt = _KV_PROMPT
+    if additional_keys:
+        keys_str = ", ".join(f'"{k}"' for k in additional_keys)
+        prompt += f"\n- Also specifically look for and extract these fields if present: {keys_str}"
     provider = settings.llm_provider
     if provider == "gemini":
         raw = _call_gemini_vision(prompt, pdf_path)

@@ -13,7 +13,6 @@ import {
   listDocuments,
   deleteDocument,
   getDocumentFileUrl,
-  classifyDocument,
   extractKeyValues,
   askQuestion,
   getChatHistory,
@@ -25,7 +24,7 @@ import type {
   KVExtractionResult, ChatMessage,
 } from './types'
 
-type AppState = 'empty' | 'uploading' | 'classifying' | 'analyzing' | 'done' | 'error'
+type AppState = 'empty' | 'uploading' | 'done' | 'error'
 type Page = 'main' | 'settings'
 type FeatureTab = 'fraud' | 'kv' | 'chat'
 
@@ -107,39 +106,8 @@ export default function App() {
 
     try {
       const upload = await uploadDocument(file)
-      await loadDocuments()
-
-      let docType: DocumentType = 'other'
-
-      if (geminiConfigured) {
-        setState('classifying')
-        try {
-          const cls = await classifyDocument(upload.document_id)
-          docType = cls.document_type
-        } catch {
-          // classification failed, continue without type
-        }
-      }
-
-      setSelectedDocType(docType)
       setSelectedDocId(upload.document_id)
-      await loadDocuments()
-
-      // Auto-run fraud detection for bank statements
-      if (docType === 'bank_statement' || docType === 'other') {
-        setState('analyzing')
-        setActiveTab('fraud')
-        try {
-          const result = await analyzeDocument(upload.document_id)
-          setAnalysisResult(result)
-        } catch {
-          // fraud detection failed (ok for non-bank docs)
-        }
-      } else {
-        // Annual report: skip fraud detection, go straight to KV tab
-        setActiveTab('kv')
-      }
-
+      setSelectedDocType('other')
       setState('done')
       await loadDocuments()
     } catch (err: unknown) {
@@ -151,55 +119,26 @@ export default function App() {
 
   const handleSelectDocument = async (docId: string) => {
     if (docId === selectedDocId) return
-    setSelectedDocId(docId)
     resetPanelState()
-    setState('analyzing')
     setError(null)
 
     const doc = documents.find((d) => d.document_id === docId)
-    let docType = (doc?.document_type ?? null) as DocumentType | null
+    const docType = (doc?.document_type ?? 'other') as DocumentType
     setSelectedDocType(docType)
+    setSelectedDocId(docId)
+
+    // Load any previously cached results
+    try {
+      const result = await getAnalysis(docId)
+      setAnalysisResult(result)
+    } catch { /* not analyzed yet */ }
 
     try {
-      // Auto-classify if not done yet and AI is available
-      if (!docType && geminiConfigured) {
-        try {
-          const cls = await classifyDocument(docId)
-          docType = cls.document_type
-          setSelectedDocType(docType)
-          await loadDocuments()
-        } catch {
-          // classification failed, continue
-        }
-      }
+      const history = await getChatHistory(docId)
+      setChatHistory(history)
+    } catch { /* no history */ }
 
-      // Load fraud analysis if it was done before
-      if (!docType || docType === 'bank_statement') {
-        try {
-          const result = await analyzeDocument(docId)
-          setAnalysisResult(result)
-          setActiveTab('fraud')
-        } catch {
-          // not analyzed yet
-        }
-      } else {
-        setActiveTab('kv')
-      }
-
-      // Load chat history
-      try {
-        const history = await getChatHistory(docId)
-        setChatHistory(history)
-      } catch {
-        // no history
-      }
-
-      setState('done')
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to load document.'
-      setError(msg)
-      setState('error')
-    }
+    setState('done')
   }
 
   const handleDelete = async (docId: string) => {
@@ -219,25 +158,22 @@ export default function App() {
 
   const handleReanalyze = async () => {
     if (!selectedDocId) return
-    setState('analyzing')
     setError(null)
     try {
       const result = await analyzeDocument(selectedDocId)
       setAnalysisResult(result)
-      setState('done')
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Re-analysis failed.'
       setError(msg)
-      setState('error')
     }
   }
 
-  const handleExtractKV = async () => {
+  const handleExtractKV = async (additionalKeys?: string[]) => {
     if (!selectedDocId || !selectedDocType) return
     setKvLoading(true)
     setKvError(null)
     try {
-      const result = await extractKeyValues(selectedDocId)
+      const result = await extractKeyValues(selectedDocId, additionalKeys)
       setKvResult(result)
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Extraction failed.'
@@ -354,29 +290,6 @@ export default function App() {
             </div>
           )}
 
-          {page === 'main' && state === 'classifying' && (
-            <div className="flex-1 flex items-center justify-center bg-[#f5f5f5]">
-              <div className="text-center">
-                <Brain size={40} className="text-[#C8102E] animate-pulse mx-auto mb-4" />
-                <p className="text-[#333333] font-medium">Classifying document…</p>
-                <p className="text-[#888888] text-sm mt-1">Gemini is identifying the document type</p>
-              </div>
-            </div>
-          )}
-
-          {page === 'main' && state === 'analyzing' && (
-            <div className="flex-1 flex items-center justify-center bg-[#f5f5f5]">
-              <div className="text-center">
-                <div className="relative w-14 h-14 mx-auto mb-4">
-                  <div className="absolute inset-0 rounded-full border-4 border-[#f5d0d6]" />
-                  <div className="absolute inset-0 rounded-full border-4 border-[#C8102E] border-t-transparent animate-spin" />
-                  <Shield size={22} className="absolute inset-0 m-auto text-[#C8102E]" />
-                </div>
-                <p className="text-[#333333] font-semibold">Analysing document…</p>
-                <p className="text-[#888888] text-sm mt-1">Running fraud detection algorithms</p>
-              </div>
-            </div>
-          )}
 
           {page === 'main' && state === 'error' && (
             <div className="flex-1 flex items-center justify-center p-12 bg-[#f5f5f5]">

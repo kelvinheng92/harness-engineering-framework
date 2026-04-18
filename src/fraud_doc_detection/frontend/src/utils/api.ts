@@ -13,12 +13,12 @@ const api = axios.create({
 // ─── Status / Settings ───────────────────────────────────────────────────────
 
 export async function getStatus(): Promise<StatusResponse> {
-  const { data } = await api.get<StatusResponse>('/status')
+  const { data } = await api.get<StatusResponse>('/status', { timeout: 5000 })
   return data
 }
 
 export async function saveApiKey(apiKey: string, provider: string): Promise<void> {
-  await api.post('/settings/key', { api_key: apiKey, provider })
+  await api.post('/settings/key', { api_key: apiKey, provider }, { timeout: 15000 })
 }
 
 // ─── Upload ──────────────────────────────────────────────────────────────────
@@ -72,8 +72,9 @@ export async function classifyDocument(documentId: string): Promise<Classificati
 
 // ─── Key-Value Extraction ────────────────────────────────────────────────────
 
-export async function extractKeyValues(documentId: string): Promise<KVExtractionResult> {
-  const { data } = await api.post<KVExtractionResult>(`/extract/${documentId}`)
+export async function extractKeyValues(documentId: string, additionalKeys?: string[]): Promise<KVExtractionResult> {
+  const body = additionalKeys?.length ? { additional_keys: additionalKeys } : undefined
+  const { data } = await api.post<KVExtractionResult>(`/extract/${documentId}`, body)
   return data
 }
 

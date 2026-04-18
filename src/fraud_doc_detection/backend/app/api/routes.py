@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from app.models.schemas import (
     UploadResponse, AnalysisResult, DocumentListItem,
     ClassificationResult, KVExtractionResult, KeyValuePair,
+    ExtractionRequest,
     QARequest, QAResponse, ChatMessage,
     ApiKeyRequest, StatusResponse, DocumentType,
 )
@@ -294,8 +295,8 @@ async def classify_document(document_id: str):
 # ─── Key-Value Extraction ────────────────────────────────────────────────────
 
 @router.post("/extract/{document_id}", response_model=KVExtractionResult)
-async def extract_key_values(document_id: str):
-    """Extract structured key-value pairs from a bank statement or annual report."""
+async def extract_key_values(document_id: str, body: ExtractionRequest = ExtractionRequest()):
+    """Extract structured key-value pairs from any financial document."""
     _require_llm()
     doc_info = _get_doc_or_404(document_id)
 
@@ -311,9 +312,9 @@ async def extract_key_values(document_id: str):
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"Auto-classification failed: {exc}")
 
-    # Return cached result if available
+    # Return cached result only when no additional keys are requested
     kv_path = KV_DIR / f"{document_id}.json"
-    if kv_path.exists():
+    if kv_path.exists() and not body.additional_keys:
         cached = KVExtractionResult(**json.loads(kv_path.read_text()))
         # Invalidate cache if type changed
         if cached.document_type == doc_type:
@@ -321,7 +322,7 @@ async def extract_key_values(document_id: str):
 
     file_path = doc_info["file_path"]
     try:
-        raw = llm_service.extract_key_values(file_path, doc_type)
+        raw = llm_service.extract_key_values(file_path, doc_type, body.additional_keys)
     except RuntimeError as exc:
         status = 429 if "quota" in str(exc).lower() else 500
         raise HTTPException(status_code=status, detail=str(exc))
