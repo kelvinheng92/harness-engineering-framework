@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Shield, Loader2, AlertCircle } from 'lucide-react'
 import { Sidebar } from './components/Sidebar'
 import { UploadZone } from './components/UploadZone'
 import { AnalysisPanel } from './components/AnalysisPanel'
 import { PDFViewer } from './components/PDFViewer'
 import { SettingsPage } from './components/SettingsPage'
+import { ResizableSplit } from './components/ResizableSplit'
 import {
   uploadDocument,
   analyzeDocument,
@@ -24,6 +25,7 @@ export default function App() {
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null)
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [activeIndicatorId, setActiveIndicatorId] = useState<string | null>(null)
 
   const loadDocuments = useCallback(async () => {
     try {
@@ -42,6 +44,7 @@ export default function App() {
     setState('uploading')
     setError(null)
     setAnalysisResult(null)
+    setActiveIndicatorId(null)
     try {
       const upload = await uploadDocument(file)
       setState('analyzing')
@@ -64,6 +67,7 @@ export default function App() {
     setAnalysisResult(null)
     setState('analyzing')
     setError(null)
+    setActiveIndicatorId(null)
     try {
       const result = await analyzeDocument(docId)
       setAnalysisResult(result)
@@ -72,6 +76,20 @@ export default function App() {
       const msg = err instanceof Error ? err.message : 'Failed to load analysis.'
       setError(msg)
       setState('error')
+    }
+  }
+
+  const handleDeleteDocument = async (docId: string) => {
+    try {
+      await deleteDocument(docId)
+      setDocuments((prev) => prev.filter((d) => d.document_id !== docId))
+      if (selectedDocId === docId) {
+        setSelectedDocId(null)
+        setAnalysisResult(null)
+        setState('empty')
+      }
+    } catch {
+      // ignore
     }
   }
 
@@ -90,6 +108,34 @@ export default function App() {
     }
   }
 
+  const handleSelectIndicator = (id: string) => {
+    setActiveIndicatorId((prev) => (prev === id ? null : id))
+  }
+
+  // Map each indicator id → color palette index (stable across re-renders)
+  const indicatorColorMap = useMemo<Record<string, number>>(() => {
+    const map: Record<string, number> = {}
+    analysisResult?.indicators.forEach((ind, idx) => { map[ind.id] = idx })
+    return map
+  }, [analysisResult])
+
+  // Flatten ALL highlights from ALL indicators for simultaneous display
+  const allHighlights = useMemo(() => {
+    if (!analysisResult) return []
+    return analysisResult.indicators.flatMap((ind, idx) =>
+      (ind.highlights ?? []).map((h) => ({
+        ...h,
+        indicatorId: ind.id,
+        colorIndex: idx,
+      }))
+    )
+  }, [analysisResult])
+
+  const activeIndicator = analysisResult?.indicators.find((i) => i.id === activeIndicatorId) ?? null
+  const jumpToPage = activeIndicator
+    ? (activeIndicator.highlights?.[0]?.page ?? null)
+    : null
+
   const fileUrl = selectedDocId ? getDocumentFileUrl(selectedDocId) : null
   const selectedDoc = documents.find((d) => d.document_id === selectedDocId)
 
@@ -100,6 +146,7 @@ export default function App() {
         documents={documents}
         selectedId={selectedDocId}
         onSelect={(id) => { setPage('main'); handleSelectDocument(id) }}
+        onDelete={handleDeleteDocument}
         activePage={page}
         onNavigate={setPage}
       />
@@ -118,16 +165,9 @@ export default function App() {
             </span>
           </div>
 
-          <div className="flex items-center gap-4">
-            <nav className="hidden md:flex items-center gap-5 text-sm text-[#555555]">
-              <a className="hover:text-[#C8102E] transition-colors cursor-pointer">Overview</a>
-              <a className="hover:text-[#C8102E] transition-colors cursor-pointer">Reports</a>
-              <a className="hover:text-[#C8102E] transition-colors cursor-pointer">Security</a>
-            </nav>
-            <button className="text-sm font-semibold text-[#C8102E] border border-[#C8102E] px-4 py-1.5 rounded hover:bg-[#fbeaed] transition-colors">
-              Sign In
-            </button>
-          </div>
+          <button className="text-sm font-semibold text-[#C8102E] border border-[#C8102E] px-4 py-1.5 rounded hover:bg-[#fbeaed] transition-colors">
+            Sign In
+          </button>
         </header>
 
         {/* Content */}
@@ -212,40 +252,49 @@ export default function App() {
             </div>
           )}
 
-          {/* Done state: split view */}
+          {/* Done state: resizable split view */}
           {page === 'main' && state === 'done' && analysisResult && fileUrl && (
-            <>
-              {/* Analysis panel */}
-              <div className="w-[600px] flex-shrink-0 border-r border-[#e0e0e0] bg-[#f5f5f5] p-4 overflow-y-auto">
-                {/* Quick upload another */}
-                <label className="flex items-center gap-2 px-3 py-2.5 rounded bg-white border border-[#e0e0e0] hover:border-[#C8102E] cursor-pointer transition-colors mb-4 group">
-                  <input
-                    type="file"
-                    accept=".pdf"
-                    className="hidden"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0]
-                      if (f) handleUpload(f)
-                    }}
+            <ResizableSplit
+              initialLeftWidth={600}
+              left={
+                <div className="p-4">
+                  {/* Quick upload another */}
+                  <label className="flex items-center gap-2 px-3 py-2.5 rounded bg-white border border-[#e0e0e0] hover:border-[#C8102E] cursor-pointer transition-colors mb-4 group">
+                    <input
+                      type="file"
+                      accept=".pdf"
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0]
+                        if (f) handleUpload(f)
+                      }}
+                    />
+                    <Shield size={14} className="text-[#C8102E]" />
+                    <span className="text-xs text-[#666666] group-hover:text-[#C8102E] transition-colors">
+                      Analyse another document
+                    </span>
+                  </label>
+
+                  <AnalysisPanel
+                    result={analysisResult}
+                    onReanalyze={handleReanalyze}
+                    analyzing={false}
+                    activeIndicatorId={activeIndicatorId}
+                    onSelectIndicator={handleSelectIndicator}
+                    indicatorColorMap={indicatorColorMap}
                   />
-                  <Shield size={14} className="text-[#C8102E]" />
-                  <span className="text-xs text-[#666666] group-hover:text-[#C8102E] transition-colors">
-                    Analyse another document
-                  </span>
-                </label>
-
-                <AnalysisPanel
-                  result={analysisResult}
-                  onReanalyze={handleReanalyze}
-                  analyzing={false}
+                </div>
+              }
+              right={
+                <PDFViewer
+                  url={fileUrl}
+                  filename={analysisResult.filename}
+                  highlights={allHighlights}
+                  activeIndicatorId={activeIndicatorId}
+                  jumpToPage={jumpToPage}
                 />
-              </div>
-
-              {/* PDF Viewer */}
-              <div className="flex-1 overflow-hidden">
-                <PDFViewer url={fileUrl} filename={analysisResult.filename} />
-              </div>
-            </>
+              }
+            />
           )}
         </div>
       </div>

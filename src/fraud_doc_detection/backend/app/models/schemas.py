@@ -3,6 +3,23 @@ from typing import Optional, List, Literal
 from enum import Enum
 
 
+class HighlightBox(BaseModel):
+    """Bounding box for a specific region of interest inside a PDF page.
+
+    Coordinates are in PDF points with top-left origin (PyMuPDF device space).
+    page_width / page_height are the MediaBox dimensions of that page in points,
+    used by the frontend to compute the pixel→point scale factor.
+    """
+    page: int         # 1-indexed
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    label: str        # short tooltip shown on hover
+    page_width: float
+    page_height: float
+
+
 class IndicatorSeverity(str, Enum):
     HIGH = "high"
     MEDIUM = "medium"
@@ -17,6 +34,7 @@ class FraudIndicator(BaseModel):
     severity: IndicatorSeverity
     details: Optional[str] = None
     confidence: float  # 0-100
+    highlights: List[HighlightBox] = []
 
 
 class MetadataEntry(BaseModel):

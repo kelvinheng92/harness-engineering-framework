@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronUp, AlertTriangle, AlertCircle, Info, CheckCircle } from 'lucide-react'
+import { ChevronDown, ChevronUp, AlertTriangle, AlertCircle, Info, CheckCircle, MapPin } from 'lucide-react'
 import type { FraudIndicator, IndicatorSeverity } from '../types'
+import { getColor } from '../utils/highlightColors'
 
 const severityConfig: Record<
   IndicatorSeverity,
@@ -40,17 +41,38 @@ const severityConfig: Record<
   },
 }
 
-export function IndicatorCard({ indicator }: { indicator: FraudIndicator }) {
+interface IndicatorCardProps {
+  indicator: FraudIndicator
+  colorIndex?: number
+  isActive?: boolean
+  onLocate?: () => void
+}
+
+export function IndicatorCard({ indicator, colorIndex, isActive = false, onLocate }: IndicatorCardProps) {
   const [expanded, setExpanded] = useState(false)
   const cfg = severityConfig[indicator.severity]
+  const hasHighlights = (indicator.highlights?.length ?? 0) > 0
+  const color = colorIndex !== undefined ? getColor(colorIndex) : null
 
   return (
-    <div className={`border rounded overflow-hidden ${cfg.border}`}>
+    <div
+      className={`border rounded overflow-hidden transition-shadow ${cfg.border}`}
+      style={isActive && color ? { boxShadow: `0 0 0 2px ${color.border}` } : undefined}
+    >
       <button
         className={`w-full flex items-start gap-3 p-3 text-left ${cfg.bg} hover:brightness-95 transition-all`}
         onClick={() => setExpanded((v) => !v)}
       >
-        <div className="mt-0.5 flex-shrink-0">{cfg.icon}</div>
+        {/* Color swatch — shown only when the indicator has highlights */}
+        {color && hasHighlights ? (
+          <div
+            className="mt-1 flex-shrink-0 w-3 h-3 rounded-sm"
+            style={{ backgroundColor: color.border }}
+            title="Highlighted in document"
+          />
+        ) : (
+          <div className="mt-0.5 flex-shrink-0">{cfg.icon}</div>
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <span className={`text-sm font-semibold ${cfg.title}`}>{indicator.title}</span>
@@ -62,8 +84,24 @@ export function IndicatorCard({ indicator }: { indicator: FraudIndicator }) {
             {indicator.description}
           </p>
         </div>
-        <div className="flex-shrink-0 text-[#888888] mt-0.5">
-          {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+
+        <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+          {hasHighlights && (
+            <button
+              title={isActive ? 'Hide in PDF' : 'Show in PDF'}
+              onClick={(e) => { e.stopPropagation(); onLocate?.() }}
+              className={`w-6 h-6 flex items-center justify-center rounded transition-colors ${
+                isActive
+                  ? 'bg-[#C8102E] text-white'
+                  : 'text-[#aaaaaa] hover:text-[#C8102E] hover:bg-red-50'
+              }`}
+            >
+              <MapPin size={12} />
+            </button>
+          )}
+          <div className="text-[#888888]">
+            {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          </div>
         </div>
       </button>
 
@@ -95,6 +133,11 @@ export function IndicatorCard({ indicator }: { indicator: FraudIndicator }) {
               </span>
             </div>
           </div>
+          {hasHighlights && (
+            <p className="text-[11px] text-[#888888]">
+              {indicator.highlights!.length} location{indicator.highlights!.length !== 1 ? 's' : ''} identified in document
+            </p>
+          )}
         </div>
       )}
     </div>

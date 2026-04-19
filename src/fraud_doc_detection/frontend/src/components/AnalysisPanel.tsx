@@ -11,9 +11,12 @@ interface AnalysisPanelProps {
   result: AnalysisResult
   onReanalyze: () => void
   analyzing: boolean
+  activeIndicatorId: string | null
+  onSelectIndicator: (id: string) => void
+  indicatorColorMap: Record<string, number>
 }
 
-export function AnalysisPanel({ result, onReanalyze, analyzing }: AnalysisPanelProps) {
+export function AnalysisPanel({ result, onReanalyze, analyzing, activeIndicatorId, onSelectIndicator, indicatorColorMap }: AnalysisPanelProps) {
   const [metaPage, setMetaPage] = useState(1)
   const [showAllIndicators, setShowAllIndicators] = useState(false)
 
@@ -97,7 +100,13 @@ export function AnalysisPanel({ result, onReanalyze, analyzing }: AnalysisPanelP
           </div>
           <div className="space-y-2">
             {highIndicators.map((ind) => (
-              <IndicatorCard key={ind.id} indicator={ind} />
+              <IndicatorCard
+                key={ind.id}
+                indicator={ind}
+                colorIndex={indicatorColorMap[ind.id]}
+                isActive={activeIndicatorId === ind.id}
+                onLocate={() => onSelectIndicator(ind.id)}
+              />
             ))}
           </div>
         </div>
@@ -109,7 +118,13 @@ export function AnalysisPanel({ result, onReanalyze, analyzing }: AnalysisPanelP
           <h3 className="text-sm font-semibold text-[#333333] mb-3">Additional Indicators</h3>
           <div className="space-y-2">
             {visibleOthers.map((ind) => (
-              <IndicatorCard key={ind.id} indicator={ind} />
+              <IndicatorCard
+                key={ind.id}
+                indicator={ind}
+                colorIndex={indicatorColorMap[ind.id]}
+                isActive={activeIndicatorId === ind.id}
+                onLocate={() => onSelectIndicator(ind.id)}
+              />
             ))}
           </div>
           {otherIndicators.length > 2 && (
@@ -150,8 +165,8 @@ export function AnalysisPanel({ result, onReanalyze, analyzing }: AnalysisPanelP
       <div className="grid grid-cols-2 gap-2">
         <InfoTile label="Pages" value={String(result.page_count)} />
         <InfoTile label="File Size" value={formatBytes(result.metadata.file_size)} />
-        <InfoTile label="Encrypted" value={result.metadata.is_encrypted ? 'Yes' : 'No'} />
-        <InfoTile label="Digital Sig." value={result.metadata.has_digital_signature ? 'Present' : 'None'} />
+        <BoolTile label="Encrypted" active={result.metadata.is_encrypted} activeText="Yes" inactiveText="No" />
+        <BoolTile label="Digital Sig." active={result.metadata.has_digital_signature} activeText="Present" inactiveText="Absent" />
       </div>
     </div>
   )
@@ -162,6 +177,22 @@ function InfoTile({ label, value }: { label: string; value: string }) {
     <div className="bg-white rounded border border-[#e0e0e0] px-3 py-2.5">
       <p className="text-[10px] text-[#888888] uppercase tracking-wider">{label}</p>
       <p className="text-sm font-semibold text-[#333333] mt-0.5">{value}</p>
+    </div>
+  )
+}
+
+function BoolTile({ label, active, activeText, inactiveText }: {
+  label: string
+  active: boolean
+  activeText: string
+  inactiveText: string
+}) {
+  return (
+    <div className="bg-white rounded border border-[#e0e0e0] px-3 py-2.5">
+      <p className="text-[10px] text-[#888888] uppercase tracking-wider">{label}</p>
+      <p className={`text-sm font-semibold mt-0.5 ${active ? 'text-[#333333]' : 'text-[#aaaaaa]'}`}>
+        {active ? activeText : inactiveText}
+      </p>
     </div>
   )
 }

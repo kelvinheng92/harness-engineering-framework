@@ -1,9 +1,20 @@
 """
 Core fraud detection algorithms for document analysis.
-Detects forgery indicators in PDF documents using multiple analysis techniques,
-based on resistant.ai methodology and bank statement fraud research.
+
+Algorithms are split into two independent tiers:
+
+  PART I  — Universal checks (non-content-based)
+            Inspect the PDF container itself: metadata, structure, fonts,
+            images, text layers, and annotations. These run identically on
+            any PDF document regardless of its content type.
+
+  PART II — Content-based checks (bank-statement-specific)
+            Parse the extracted text for financial logic errors, implausible
+            numeric patterns, and fabricated transaction data. These are
+            meaningless on non-financial documents.
 """
 import fitz  # PyMuPDF
+import math
 import re
 from collections import Counter
 from datetime import datetime, date
@@ -12,9 +23,10 @@ from typing import List, Dict, Optional, Tuple
 from dateutil import parser as date_parser
 
 from app.models.schemas import (
-    FraudIndicator, MetadataEntry, DocumentMetadata,
+    FraudIndicator, HighlightBox, MetadataEntry, DocumentMetadata,
     IndicatorSeverity, AnalysisResult
 )
+from app.services.ocr_service import OCRService, OCRWord
 
 
 # ─── Constants ───────────────────────────────────────────────────────────────
@@ -25,6 +37,14 @@ KNOWN_LEGITIMATE_TOOLS = {
     "nitro pdf", "foxit phantompdf", "pdfelement",
     "openoffice", "quartz pdfcontext", "mac os x quartz",
     "cairo", "ghostscript", "crystal reports",
+    # Enterprise Customer Communications Management / document generation platforms
+    "quadient", "inspire",          # Quadient Inspire (used by DBS, major banks)
+    "opentext", "output transformation",  # OpenText Output Transformation Engine
+    "vault rendering", "rendering engine",  # Vault Rendering Engine (UOB)
+    "pdfgen", "streamline",         # Streamline PDFGen (OCBC)
+    "ricoh", "afp2pdf", "afp",      # Ricoh AFP2PDF Plus (Citibank)
+    "docutech", "bottomline", "finastra", "temenos",
+    "oracle bi", "sap crystal", "jasperreports", "ireport",
 }
 
 SUSPICIOUS_CREATOR_PATTERNS = [
@@ -57,6 +77,17 @@ EXPECTED_EXPENSE_KEYWORDS = [
 # Weekend day numbers (Mon=0 … Sun=6)
 WEEKEND_DAYS = {5, 6}  # Saturday, Sunday
 
+# Benford's Law — expected first-digit probabilities for naturally occurring amounts
+BENFORD_EXPECTED: Dict[int, float] = {
+    1: 0.301, 2: 0.176, 3: 0.125, 4: 0.097,
+    5: 0.079, 6: 0.067, 7: 0.058, 8: 0.051, 9: 0.046,
+}
+
+# Deviation threshold per digit before raising Benford flag.
+# 15% gives more tolerance for small samples; requires 3+ deviating digits to fire.
+BENFORD_DEVIATION_THRESHOLD = 0.15
+BENFORD_MIN_SAMPLES = 50            # Need a reasonable sample for the law to apply
+
 # US bank holidays (month, day) — approximate static list
 BANK_HOLIDAYS = {
     (1, 1), (7, 4), (12, 25), (11, 11),  # New Year, Independence, Christmas, Veterans
@@ -64,13 +95,15 @@ BANK_HOLIDAYS = {
 
 
 class DocumentFraudDetector:
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, ocr_service: Optional[OCRService] = None):
         self.file_path = file_path
         self.doc = fitz.open(file_path)
         self.indicators: List[FraudIndicator] = []
         self.metadata_entries: List[MetadataEntry] = []
         self._indicator_counter = 0
         self._full_text: Optional[str] = None
+        self._ocr_service: Optional[OCRService] = ocr_service
+        self._ocr_words: Optional[List[OCRWord]] = None  # populated on demand
 
     def _new_indicator_id(self) -> str:
         self._indicator_counter += 1
@@ -83,6 +116,7 @@ class DocumentFraudDetector:
         severity: IndicatorSeverity,
         details: Optional[str] = None,
         confidence: float = 85.0,
+        highlights: Optional[List[HighlightBox]] = None,
     ):
         self.indicators.append(FraudIndicator(
             id=self._new_indicator_id(),
@@ -91,6 +125,7 @@ class DocumentFraudDetector:
             severity=severity,
             details=details,
             confidence=confidence,
+            highlights=highlights or [],
         ))
 
     def _get_full_text(self) -> str:
@@ -99,11 +134,82 @@ class DocumentFraudDetector:
         return self._full_text
 
     @property
-    def _is_image_only(self) -> bool:
-        """True when the PDF has no extractable text layer (scanned/image-based)."""
+    def _native_text_empty(self) -> bool:
+        """True when the PDF has no native/extractable text layer."""
         return len(self._get_full_text().strip()) < 20
 
-    # ─── 1. Metadata Analysis ────────────────────────────────────────────────
+    @property
+    def _is_image_only(self) -> bool:
+        """True when no usable text is available (native OR OCR).
+
+        After OCR runs, this becomes False so all content checks proceed using
+        the OCR-extracted text instead of the native text layer.
+        """
+        if not self._native_text_empty:
+            return False
+        # If OCR words have been loaded, we have text — not truly image-only
+        if self._ocr_words is not None and len(self._ocr_words) > 0:
+            return False
+        return True
+
+    def _run_ocr(self) -> None:
+        """Run OCR over the whole document and cache results in _ocr_words."""
+        if self._ocr_words is not None:
+            return  # already done
+        if self._ocr_service is None or not self._ocr_service.is_available():
+            self._ocr_words = []
+            return
+        self._ocr_words = self._ocr_service.run_document(self.doc)
+
+    def _get_text_for_analysis(self) -> str:
+        """Return the best available text: native layer, or OCR fallback."""
+        native = self._get_full_text()
+        if native.strip():
+            return native
+        if self._ocr_words:
+            return " ".join(w.text for w in self._ocr_words)
+        return ""
+
+    def _ocr_search_highlights(
+        self,
+        query: str,
+        label: str,
+        max_per_page: int = 3,
+    ) -> List[HighlightBox]:
+        """Search OCR word list for query tokens and return highlight boxes.
+
+        Used as a fallback when page.search_for() returns nothing because the
+        PDF has no native text layer.
+        """
+        if not self._ocr_words:
+            return []
+        query_lower = query.lower()
+        results: List[HighlightBox] = []
+        seen_pages: dict = {}
+        for w in self._ocr_words:
+            if query_lower in w.text.lower():
+                cnt = seen_pages.get(w.page, 0)
+                if cnt >= max_per_page:
+                    continue
+                page = self.doc[w.page - 1]
+                results.append(HighlightBox(
+                    page=w.page,
+                    x0=w.x0, y0=w.y0, x1=w.x1, y1=w.y1,
+                    label=label,
+                    page_width=page.rect.width,
+                    page_height=page.rect.height,
+                ))
+                seen_pages[w.page] = cnt + 1
+        return results
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # PART I — UNIVERSAL CHECKS  (non-content-based)
+    # Applicable to any PDF document regardless of content type.
+    # Checks: metadata integrity, PDF structure, fonts, images, text layers,
+    #         annotations.  No financial domain knowledge required.
+    # ═══════════════════════════════════════════════════════════════════════
+
+    # ─── I-1. Metadata ───────────────────────────────────────────────────────
 
     def analyze_metadata(self) -> DocumentMetadata:
         """Extract and analyze PDF metadata for inconsistencies."""
@@ -143,11 +249,19 @@ class DocumentFraudDetector:
         self._check_creation_date_vs_statement_period(creation_date)
 
         # Creator tool checks
+        producer_lower = producer.lower()
         if creator:
             creator_lower = creator.lower()
+            combined = creator_lower + " " + producer_lower
             is_image_editor = any(t in creator_lower for t in IMAGE_EDITING_TOOLS)
             is_suspicious = any(re.search(p, creator_lower) for p in SUSPICIOUS_CREATOR_PATTERNS)
-            is_known = any(t in creator_lower for t in KNOWN_LEGITIMATE_TOOLS)
+            # A tool is "known" if the creator OR the producer matches a recognised system.
+            # Many bank-internal generators have generic creator names (e.g. "pdfgen") but
+            # descriptive producers ("Streamline PDFGen for OCBC Group").
+            is_known = (
+                any(t in combined for t in KNOWN_LEGITIMATE_TOOLS)
+                or re.search(r'bank|financial|statement|report|group|finance', combined)
+            )
 
             if is_image_editor:
                 self._add_indicator(
@@ -170,16 +284,22 @@ class DocumentFraudDetector:
                     title="Unknown PDF Creator Tool",
                     description=f"The creator tool '{creator}' is not a recognized banking or document system. Legitimate statements use well-known generators.",
                     severity=IndicatorSeverity.MEDIUM,
-                    details=f"Creator: {creator}",
+                    details=f"Creator: {creator}  |  Producer: {producer or '—'}",
                     confidence=62.0,
                 )
         else:
-            self._add_indicator(
-                title="Missing Creator Metadata",
-                description="No creator application recorded — indicates deliberate metadata stripping, common in forged documents.",
-                severity=IndicatorSeverity.MEDIUM,
-                confidence=65.0,
+            # If the producer field identifies a known legitimate system, the
+            # missing creator is not suspicious — some generators omit it.
+            producer_known = any(t in producer_lower for t in KNOWN_LEGITIMATE_TOOLS) or (
+                re.search(r'bank|financial|statement|report|group|finance|engine|transform', producer_lower) is not None
             )
+            if not producer_known:
+                self._add_indicator(
+                    title="Missing Creator Metadata",
+                    description="No creator application recorded — indicates deliberate metadata stripping, common in forged documents.",
+                    severity=IndicatorSeverity.MEDIUM,
+                    confidence=65.0,
+                )
 
         self.metadata_entries.extend([
             MetadataEntry(field="Document Title", original_text=title or None,
@@ -246,7 +366,7 @@ class DocumentFraudDetector:
                 status="mismatch",
             ))
 
-    # ─── 2. Font Analysis ────────────────────────────────────────────────────
+    # ─── I-2. Font Analysis ──────────────────────────────────────────────────
 
     def analyze_fonts(self):
         """Detect inconsistent font types and sizes — hallmarks of value editing."""
@@ -276,18 +396,32 @@ class DocumentFraudDetector:
                             size_samples.append(round(span.get("size", 0), 1))
 
         # Cross-page font inconsistency
+        # Use the union of fonts across ALL pages as the expected set, then flag
+        # pages that are MISSING core fonts — not pages that merely add extra fonts
+        # (e.g. a CJK font on a bilingual page is expected and not suspicious).
         if len(font_sets) > 1:
-            base = font_sets[0]
-            inconsistent_pages = [
-                i + 2 for i, fs in enumerate(font_sets[1:])
-                if base.symmetric_difference(fs)
+            # Fonts present on more than half the pages are "core" fonts
+            n_pages = len(font_sets)
+            all_page_fonts: Dict[str, int] = {}
+            for fs in font_sets:
+                for f in fs:
+                    all_page_fonts[f] = all_page_fonts.get(f, 0) + 1
+            core_fonts = {f for f, cnt in all_page_fonts.items() if cnt > n_pages / 2}
+
+            missing_pages = [
+                i + 1 for i, fs in enumerate(font_sets)
+                if core_fonts - fs  # page is missing at least one core font
             ]
-            if inconsistent_pages:
+            # Tail pages (last 25% of document) commonly shed bold/decorative fonts
+            # for fine-print / T&C sections — this is normal and not suspicious.
+            tail_start = max(1, int(n_pages * 0.75) + 1)
+            non_tail_missing = [p for p in missing_pages if p < tail_start]
+            if len(non_tail_missing) > 1:
                 self._add_indicator(
                     title="Inconsistent Font Usage Across Pages",
-                    description="Different pages use different font sets, suggesting pages from separate documents were merged — a common technique in fabricated multi-page statements.",
+                    description="Multiple mid-document pages are missing fonts that appear consistently throughout the rest of the document, suggesting pages from a different source were inserted.",
                     severity=IndicatorSeverity.HIGH,
-                    details=f"Inconsistent pages: {inconsistent_pages}",
+                    details=f"Pages missing core fonts: {non_tail_missing}",
                     confidence=82.0,
                 )
 
@@ -325,25 +459,182 @@ class DocumentFraudDetector:
             status="suspicious" if len(all_fonts) > 15 else "match",
         ))
 
-    # ─── 3. Text Layer Analysis ──────────────────────────────────────────────
+        self._check_intra_line_font_fingerprint()
+
+    def _check_intra_line_font_fingerprint(self):
+        """Detect spans within a single transaction row whose font fingerprint
+        differs from the rest of that row.
+
+        A font fingerprint is the tuple (normalised font name, rounded size,
+        bold/italic flags, colour).  In a bank-generated PDF every span on the
+        same row shares an identical fingerprint.  A single outlier span —
+        especially one containing a monetary amount — is a strong signal that
+        the value was individually replaced after generation.
+        """
+        # (font_name, size_1dp, flags, color) → strip subset prefixes like "ABCDEF+"
+        def fingerprint(span: dict) -> tuple:
+            name = re.sub(r'^[A-Z]{6}\+', '', span.get("font", "") or "")
+            return (
+                name.lower().strip(),
+                round(span.get("size", 0), 1),
+                span.get("flags", 0) & 0b11110,   # bold/italic/monospace bits only
+                span.get("color", 0),
+            )
+
+        outlier_rows: List[dict] = []   # {page, line_text, outlier_text, row_fp, outlier_fp, bbox, pw, ph}
+
+        for page_num, page in enumerate(self.doc, start=1):
+            pw, ph = page.rect.width, page.rect.height
+            blocks = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
+            for block in blocks.get("blocks", []):
+                if block.get("type") != 0:
+                    continue
+                for line in block.get("lines", []):
+                    spans = line.get("spans", [])
+                    # Only examine lines that look like transaction rows:
+                    # must contain at least one monetary amount and 3+ spans
+                    line_text = "".join(s.get("text", "") for s in spans)
+                    if not re.search(r'\d+[.,]\d{2}', line_text):
+                        continue
+                    if len(spans) < 3:
+                        continue
+
+                    fps = [fingerprint(s) for s in spans]
+                    fp_counts = Counter(fps)
+                    dominant_fp, dominant_count = fp_counts.most_common(1)[0]
+
+                    # An outlier is a span with a unique fingerprint (count == 1)
+                    # that differs from the dominant AND contains a digit
+                    for span, fp in zip(spans, fps):
+                        if fp == dominant_fp:
+                            continue
+                        if fp_counts[fp] > 1:
+                            continue  # not a singleton — probably a header label
+                        text = span.get("text", "").strip()
+                        if not re.search(r'\d', text):
+                            continue  # only care about numeric outliers
+
+                        # Suppress very small size differences (< 0.3pt) — rounding artefacts
+                        size_delta = abs(fp[1] - dominant_fp[1])
+                        name_differs = fp[0] != dominant_fp[0]
+                        flags_differ = fp[2] != dominant_fp[2]
+                        color_differs = fp[3] != dominant_fp[3]
+
+                        if size_delta < 0.3 and not name_differs and not flags_differ and not color_differs:
+                            continue
+
+                        outlier_rows.append({
+                            "page": page_num,
+                            "line": line_text[:80],
+                            "span_text": text,
+                            "dominant": dominant_fp,
+                            "outlier": fp,
+                            "size_delta": round(size_delta, 2),
+                            "name_differs": name_differs,
+                            "color_differs": color_differs,
+                            "bbox": span.get("bbox"),
+                            "pw": pw,
+                            "ph": ph,
+                        })
+
+        if not outlier_rows:
+            self.metadata_entries.append(MetadataEntry(
+                field="Intra-Line Font Fingerprint",
+                original_text="Consistent",
+                new_text=None,
+                status="match",
+            ))
+            return
+
+        # Build a concise detail string for the top outliers
+        detail_parts = []
+        for r in outlier_rows[:5]:
+            reasons = []
+            if r["name_differs"]:
+                reasons.append(f"font '{r['outlier'][0]}' vs '{r['dominant'][0]}'")
+            if r["size_delta"] >= 0.3:
+                reasons.append(f"size {r['outlier'][1]}pt vs {r['dominant'][1]}pt")
+            if r["color_differs"]:
+                reasons.append(f"colour #{r['outlier'][3]:06X} vs #{r['dominant'][3]:06X}")
+            detail_parts.append(
+                f"p{r['page']} — \"{r['span_text']}\" ({', '.join(reasons)})"
+            )
+
+        severity = IndicatorSeverity.HIGH if len(outlier_rows) >= 3 else IndicatorSeverity.MEDIUM
+        confidence = 88.0 if len(outlier_rows) >= 3 else 74.0
+
+        highlights = [
+            HighlightBox(
+                page=r["page"],
+                x0=r["bbox"][0], y0=r["bbox"][1],
+                x1=r["bbox"][2], y1=r["bbox"][3],
+                label=f"Font mismatch: \"{r['span_text']}\"",
+                page_width=r["pw"], page_height=r["ph"],
+            )
+            for r in outlier_rows if r.get("bbox")
+        ]
+
+        self._add_indicator(
+            title="Intra-Line Font Fingerprint Mismatch",
+            description=(
+                f"{len(outlier_rows)} transaction row(s) contain a span whose font fingerprint "
+                "(name, size, style, colour) differs from every other span on that row. "
+                "Bank-generated PDFs typeset each row with a single consistent style; "
+                "a lone outlier span — particularly on a monetary amount — indicates that "
+                "individual value was replaced after the document was generated."
+            ),
+            severity=severity,
+            details=" | ".join(detail_parts),
+            confidence=confidence,
+            highlights=highlights,
+        )
+        self.metadata_entries.append(MetadataEntry(
+            field="Intra-Line Font Fingerprint",
+            original_text="Consistent expected",
+            new_text=f"{len(outlier_rows)} outlier span(s)",
+            status="mismatch",
+        ))
+
+    # ─── I-3. Text Layer Analysis ────────────────────────────────────────────
 
     def analyze_text_layers(self):
         """Check for hidden or overlapping text layers."""
         hidden_text_pages = []
         invisible_text_pages = []
+        hidden_highlights: List[HighlightBox] = []
+        invisible_highlights: List[HighlightBox] = []
 
         for page_num, page in enumerate(self.doc, start=1):
+            pw, ph = page.rect.width, page.rect.height
             blocks = page.get_text("rawdict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
             for block in blocks.get("blocks", []):
                 if block.get("type") != 0:
                     continue
                 for line in block.get("lines", []):
                     for span in line.get("spans", []):
+                        bbox = span.get("bbox")
                         if span.get("size", 12) < 0.5:
                             hidden_text_pages.append(page_num)
+                            if bbox:
+                                hidden_highlights.append(HighlightBox(
+                                    page=page_num, x0=bbox[0], y0=bbox[1],
+                                    x1=bbox[2], y1=bbox[3],
+                                    label="Hidden text",
+                                    page_width=pw, page_height=ph,
+                                ))
                         color = span.get("color", 0)
-                        if color == 0xFFFFFF or color == 16777215:
+                        span_text = span.get("text", "")
+                        # Only flag if the span contains actual non-whitespace content —
+                        # PDF generators legitimately use white-colored spaces for layout.
+                        if (color == 0xFFFFFF or color == 16777215) and span_text.strip():
                             invisible_text_pages.append(page_num)
+                            if bbox:
+                                invisible_highlights.append(HighlightBox(
+                                    page=page_num, x0=bbox[0], y0=bbox[1],
+                                    x1=bbox[2], y1=bbox[3],
+                                    label="Invisible text",
+                                    page_width=pw, page_height=ph,
+                                ))
 
         if hidden_text_pages:
             self._add_indicator(
@@ -352,6 +643,7 @@ class DocumentFraudDetector:
                 severity=IndicatorSeverity.HIGH,
                 details=f"Affected pages: {sorted(set(hidden_text_pages))}",
                 confidence=91.0,
+                highlights=hidden_highlights,
             )
         if invisible_text_pages:
             self._add_indicator(
@@ -360,9 +652,10 @@ class DocumentFraudDetector:
                 severity=IndicatorSeverity.HIGH,
                 details=f"Affected pages: {sorted(set(invisible_text_pages))}",
                 confidence=93.0,
+                highlights=invisible_highlights,
             )
 
-    # ─── 4. Image Analysis ───────────────────────────────────────────────────
+    # ─── I-4. Image Analysis ─────────────────────────────────────────────────
 
     def analyze_images(self):
         """Detect suspicious image characteristics including low-res/blurry logos."""
@@ -382,14 +675,17 @@ class DocumentFraudDetector:
                     w_px = img_dict.get("width", 0)
                     h_px = img_dict.get("height", 0)
 
-                    if 0 < w_px < 50 and 0 < h_px < 50:
+                    # Tracking pixels / replacement artifacts are typically ≤ 5px.
+                    # Small UI icons (24–48 px) are standard in professional PDFs.
+                    if 0 < w_px <= 5 and 0 < h_px <= 5:
                         micro_images.append({"page": page_num, "w": w_px, "h": h_px})
 
-                    # Estimate effective DPI: image pixel width vs page width in inches
-                    # A4/Letter ~8.27 in wide = 595pt. If image spans full page:
+                    # Estimate effective DPI: image pixel width vs page width in inches.
+                    # Only flag images large enough to be content (> 100px) — small icons
+                    # are always low-DPI by design and are not suspicious.
                     if w_px > 0 and page_width_pt > 0:
                         est_dpi = (w_px / page_width_pt) * 72
-                        if est_dpi < 72 and w_px > 50:  # Low DPI for non-tiny image
+                        if est_dpi < 20 and w_px > 100 and h_px > 60:  # Extremely low DPI for content-sized image (< 20 strongly suggests screenshot/copy-paste; excludes AFP/print-stream logos)
                             low_res_images.append({
                                 "page": page_num, "w": w_px, "h": h_px,
                                 "est_dpi": round(est_dpi)
@@ -422,29 +718,66 @@ class DocumentFraudDetector:
             status="match",
         ))
 
-    # ─── 5. PDF Structure Analysis ───────────────────────────────────────────
+    # ─── I-5. PDF Structure Analysis ─────────────────────────────────────────
 
     def analyze_document_type(self):
-        """Detect image-only (scanned) PDFs — genuine bank statements always have a text layer."""
-        if self._is_image_only:
-            self._add_indicator(
-                title="No Text Layer — Image-Only PDF",
-                description=(
-                    "This PDF contains no extractable text. Genuine bank statements are digitally "
-                    "generated by banking software and always embed a searchable text layer. "
-                    "An image-only document suggests it was printed and re-scanned — a common "
-                    "technique to remove digital metadata and editing traces before submission."
-                ),
-                severity=IndicatorSeverity.HIGH,
-                details="0 characters of text extracted across all pages. All text-based checks are unavailable.",
-                confidence=88.0,
-            )
-            self.metadata_entries.append(MetadataEntry(
-                field="Text Layer Present",
-                original_text="No",
-                new_text="Expected: Yes",
-                status="mismatch",
-            ))
+        """Detect image-only (scanned) PDFs.
+
+        When no native text layer is found, attempt OCR via PaddleOCR. If OCR
+        succeeds the document is treated as readable for all subsequent checks.
+        """
+        if self._native_text_empty:
+            # Attempt OCR before raising an indicator
+            self._run_ocr()
+
+            if self._ocr_words:
+                # OCR succeeded — document is analysable
+                ocr_char_count = sum(len(w.text) for w in self._ocr_words)
+                self._add_indicator(
+                    title="No Native Text Layer — OCR Applied",
+                    description=(
+                        "This PDF contains no extractable text layer. Genuine bank statements are "
+                        "digitally generated and always embed a searchable text layer. "
+                        "An image-only document suggests it was printed and re-scanned — a common "
+                        "technique to remove digital metadata. OCR has been applied to extract text "
+                        "for further analysis."
+                    ),
+                    severity=IndicatorSeverity.MEDIUM,
+                    details=f"0 native chars; OCR extracted ~{ocr_char_count} chars across {len(self.doc)} pages.",
+                    confidence=80.0,
+                )
+                self.metadata_entries.append(MetadataEntry(
+                    field="Text Layer Present",
+                    original_text="No (image-only)",
+                    new_text=f"OCR: ~{ocr_char_count} chars",
+                    status="annotation",
+                ))
+            else:
+                # No native text and OCR unavailable / failed
+                ocr_note = (
+                    " OCR service is unavailable — content checks cannot run."
+                    if self._ocr_service is not None
+                    else " No OCR service configured — content checks cannot run."
+                )
+                self._add_indicator(
+                    title="No Text Layer — Image-Only PDF",
+                    description=(
+                        "This PDF contains no extractable text. Genuine bank statements are digitally "
+                        "generated by banking software and always embed a searchable text layer. "
+                        "An image-only document suggests it was printed and re-scanned — a common "
+                        "technique to remove digital metadata and editing traces before submission."
+                        + ocr_note
+                    ),
+                    severity=IndicatorSeverity.HIGH,
+                    details="0 characters of text extracted across all pages. All text-based checks are unavailable.",
+                    confidence=88.0,
+                )
+                self.metadata_entries.append(MetadataEntry(
+                    field="Text Layer Present",
+                    original_text="No",
+                    new_text="Expected: Yes",
+                    status="mismatch",
+                ))
         else:
             char_count = len(self._get_full_text().strip())
             self.metadata_entries.append(MetadataEntry(
@@ -498,16 +831,135 @@ class DocumentFraudDetector:
                 confidence=75.0,
             )
 
-    # ─── 6. Financial Content Analysis ──────────────────────────────────────
+    # ─── I-6. PDF Annotation / Whitebox Overlay Analysis ────────────────────
+
+    def analyze_annotations(self):
+        """Detect white-rectangle PDF annotations used to cover and replace original text.
+
+        A common editing technique is to place an opaque white box over original text
+        and then layer new text on top — creating the visual appearance of a change
+        while leaving evidence in the PDF annotation/appearance stream.
+        """
+        whitebox_pages: List[int] = []
+        text_annot_pages: List[int] = []
+        whitebox_highlights: List[HighlightBox] = []
+        text_annot_highlights: List[HighlightBox] = []
+        total_annots = 0
+
+        for page_num, page in enumerate(self.doc, start=1):
+            pw, ph = page.rect.width, page.rect.height
+            annots = page.annots()
+            if annots is None:
+                continue
+            for annot in annots:
+                total_annots += 1
+                annot_type = annot.type[1] if annot.type else ""
+                rect = annot.rect
+
+                # Square / Rectangle annotations that are filled white are the classic
+                # "whiteout box" technique
+                if annot_type in ("Square", "FreeText", "Redact"):
+                    colors = annot.colors
+                    fill = colors.get("fill") if colors else None
+                    # White fill: (1, 1, 1) in RGB
+                    if fill and all(abs(c - 1.0) < 0.05 for c in fill[:3]):
+                        whitebox_pages.append(page_num)
+                        whitebox_highlights.append(HighlightBox(
+                            page=page_num,
+                            x0=rect.x0, y0=rect.y0, x1=rect.x1, y1=rect.y1,
+                            label="Whiteout box",
+                            page_width=pw, page_height=ph,
+                        ))
+
+                # FreeText annotations with content are used to overlay replacement values
+                if annot_type == "FreeText":
+                    content = annot.info.get("content", "") or ""
+                    if re.search(r'\d+\.\d{2}', content):
+                        text_annot_pages.append(page_num)
+                        text_annot_highlights.append(HighlightBox(
+                            page=page_num,
+                            x0=rect.x0, y0=rect.y0, x1=rect.x1, y1=rect.y1,
+                            label=f"Annotation: {content[:40]}",
+                            page_width=pw, page_height=ph,
+                        ))
+
+        if whitebox_pages:
+            self._add_indicator(
+                title="White Rectangle Annotations (Whiteout Boxes)",
+                description=(
+                    f"White-filled rectangular annotation(s) found on page(s) "
+                    f"{sorted(set(whitebox_pages))}. This is the digital equivalent of correction "
+                    "fluid — a classic technique to cover original bank figures and paste new values "
+                    "on top. Genuine bank PDFs never contain opaque overlay annotations."
+                ),
+                severity=IndicatorSeverity.HIGH,
+                details=f"Affected pages: {sorted(set(whitebox_pages))} | Total annotations: {total_annots}",
+                confidence=92.0,
+                highlights=whitebox_highlights,
+            )
+
+        if text_annot_pages:
+            self._add_indicator(
+                title="Numeric Values in PDF Annotations",
+                description=(
+                    f"FreeText annotation(s) containing monetary amounts found on page(s) "
+                    f"{sorted(set(text_annot_pages))}. Amounts embedded in annotations sit "
+                    "outside the main content stream, indicating values were added post-generation."
+                ),
+                severity=IndicatorSeverity.HIGH,
+                details=f"Affected pages: {sorted(set(text_annot_pages))}",
+                confidence=89.0,
+                highlights=text_annot_highlights,
+            )
+
+        if not whitebox_pages and not text_annot_pages and total_annots > 0:
+            self.metadata_entries.append(MetadataEntry(
+                field="PDF Annotations",
+                original_text=f"{total_annots} annotation(s)",
+                new_text="Non-whitebox annotations present",
+                status="annotation",
+            ))
+        elif total_annots == 0:
+            self.metadata_entries.append(MetadataEntry(
+                field="PDF Annotations",
+                original_text="None",
+                new_text=None,
+                status="match",
+            ))
+
+    def analyze_universal(self) -> DocumentMetadata:
+        """Run all Part I universal checks applicable to any PDF document.
+
+        Returns the extracted DocumentMetadata for use in the final result.
+        """
+        metadata = self.analyze_metadata()
+        self.analyze_document_type()
+        self.analyze_fonts()
+        self.analyze_text_layers()
+        self.analyze_images()
+        self.analyze_structure()
+        self.analyze_annotations()
+        return metadata
+
+    # ═══════════════════════════════════════════════════════════════════════
+    # PART II — CONTENT-BASED CHECKS  (bank-statement-specific)
+    # Parse the extracted text for financial logic errors, implausible numeric
+    # patterns, and fabricated transaction data.  Skipped automatically when
+    # the document has no extractable text layer.
+    # ═══════════════════════════════════════════════════════════════════════
+
+    # ─── II-1. Financial Content Entry Point ─────────────────────────────────
 
     def analyze_financial_content(self):
         """Heuristic analysis of statement text for bank-statement-specific red flags."""
         if self._is_image_only:
-            # All text-dependent checks cannot run — already flagged in analyze_document_type
+            # No native text and no OCR results available
             for field in [
                 "Balance Math Check", "Rounded Deposits Check",
                 "Account Number Consistency", "Everyday Expense Categories",
                 "Weekend Transaction Check", "Column Alignment Check",
+                "Benford's Law Check", "Duplicate Transaction Check",
+                "Transaction Date Ordering", "Opening/Closing Balance Continuity",
             ]:
                 self.metadata_entries.append(MetadataEntry(
                     field=field,
@@ -517,7 +969,7 @@ class DocumentFraudDetector:
                 ))
             return
 
-        text = self._get_full_text()
+        text = self._get_text_for_analysis()
         text_lower = text.lower()
 
         self._check_running_balance_math(text)
@@ -531,16 +983,22 @@ class DocumentFraudDetector:
         self._check_currency_formatting(text)
         self._check_issuer_signatures(text_lower)
         self._check_mismatched_columns(text)
+        # ── New algorithms ─────────────────────────────────────────────────────
+        self._check_benfords_law(text)
+        self._check_duplicate_transactions(text)
+        self._check_transaction_date_ordering(text)
+        self._check_opening_closing_balance(text)
+        self._check_uniform_transaction_intervals(text)
+        self._check_implausible_income_expense_ratio(text)
 
     def _check_running_balance_math(self, text: str):
         """Verify that running balances add up (debit/credit → new balance)."""
-        # Extract lines with a pattern: amount debit/credit, then balance
-        # Pattern: optional date, description, amount, balance on same line
         line_pattern = re.compile(
             r'([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})'
         )
         errors = 0
         checked = 0
+        error_amounts: List[str] = []  # balance values of failing rows for highlight search
 
         for line in text.splitlines():
             m = line_pattern.search(line)
@@ -550,22 +1008,26 @@ class DocumentFraudDetector:
                 a = float(m.group(1).replace(',', ''))
                 b = float(m.group(2).replace(',', ''))
                 c = float(m.group(3).replace(',', ''))
-                # Check if a + b ≈ c or a - b ≈ c (debit or credit)
                 if abs((a + b) - c) < 0.02 or abs((a - b) - c) < 0.02:
                     checked += 1
                 elif checked > 0:
-                    # We found a pattern but this line breaks it
                     errors += 1
+                    # Record the balance value (third number) to locate the row
+                    error_amounts.append(m.group(3))
             except Exception:
                 pass
 
         if checked >= 3 and errors >= 2:
+            highlights: List[HighlightBox] = []
+            for amt in error_amounts[:5]:
+                highlights.extend(self._search_all_pages(amt, f"Balance error: {amt}"))
             self._add_indicator(
                 title="Running Balance Math Errors",
                 description=f"Mathematical verification of transaction amounts against running balances found {errors} inconsistenc{'y' if errors == 1 else 'ies'}. Legitimate statements always balance exactly — errors indicate values were manually altered.",
                 severity=IndicatorSeverity.HIGH,
                 details=f"Checked {checked + errors} rows, {errors} failed balance verification",
                 confidence=88.0,
+                highlights=highlights,
             )
             self.metadata_entries.append(MetadataEntry(
                 field="Balance Math Check",
@@ -582,8 +1044,27 @@ class DocumentFraudDetector:
             ))
 
     def _check_rounded_repeated_deposits(self, text: str):
-        """Detect suspiciously round or repeated deposit amounts."""
-        amounts = re.findall(r'\b(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\b', text)
+        """Detect suspiciously round or repeated deposit amounts.
+
+        Only scans lines that look like transaction rows (contain a date) to
+        avoid counting amounts in boilerplate footers, legal disclaimers, or
+        deposit-insurance notices (e.g. "insured up to S$100,000 per depositor").
+        """
+        # Date pattern: DD/MM/YYYY, DD-MM-YYYY, DD MMM YYYY, MMM DD YYYY, etc.
+        date_re = re.compile(
+            r'\b\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4}\b'
+            r'|\b\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\b'
+            r'|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b',
+            re.IGNORECASE,
+        )
+        transaction_lines = [ln for ln in text.splitlines() if date_re.search(ln)]
+        # If no transaction lines found (e.g. OCR text lacks line breaks), skip
+        # the check entirely — results would be unreliable.
+        if not transaction_lines:
+            return
+        scan_text = "\n".join(transaction_lines)
+
+        amounts = re.findall(r'\b(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\b', scan_text)
         parsed = []
         for a in amounts:
             try:
@@ -612,12 +1093,18 @@ class DocumentFraudDetector:
         count = Counter(parsed)
         highly_repeated = [(v, c) for v, c in count.items() if c >= 4 and v >= 500]
         if highly_repeated:
+            highlights: List[HighlightBox] = []
+            for v, _ in highly_repeated[:3]:
+                # Search for the formatted amount string e.g. "5,000.00"
+                fmt = f"{v:,.2f}"
+                highlights.extend(self._search_all_pages(fmt, f"Repeated amount: {fmt}"))
             self._add_indicator(
                 title="Identical Deposit Amounts Repeated",
                 description=f"Certain amounts appear {highly_repeated[0][1]}+ times identically. While recurring salaries are normal, multiple large identical amounts suggest fabricated data.",
                 severity=IndicatorSeverity.MEDIUM,
                 details=f"Repeated: {[(f'${v:,.2f} × {c}') for v, c in highly_repeated[:5]]}",
                 confidence=70.0,
+                highlights=highlights,
             )
 
     def _check_account_number_consistency(self, text: str):
@@ -627,11 +1114,25 @@ class DocumentFraudDetector:
             r'(?:account\s*(?:number|no\.?|#)?|acct\.?)\s*[:\-]?\s*[\*xX]*(\d[\d\s\-]{6,18}\d)',
             re.IGNORECASE,
         )
-        found = set()
+        raw: List[str] = []
         for m in pattern.finditer(text):
             num = re.sub(r'[\s\-]', '', m.group(1))
             if 8 <= len(num) <= 17:
-                found.add(num)
+                raw.append(num)
+
+        # Deduplicate: if one number is a prefix of another (greedy regex sometimes
+        # captures 1-2 extra trailing digits), keep the shorter canonical form.
+        raw_unique = sorted(set(raw))
+        found: set = set()
+        for n in raw_unique:
+            # Skip if a shorter version of this number is already in found
+            if any(n.startswith(existing) and len(n) - len(existing) <= 2
+                   for existing in found):
+                continue
+            # Replace any longer version already in found that this is a prefix of
+            found = {e for e in found
+                     if not (e.startswith(n) and len(e) - len(n) <= 2)}
+            found.add(n)
 
         self.metadata_entries.append(MetadataEntry(
             field="Account Numbers Found",
@@ -640,13 +1141,19 @@ class DocumentFraudDetector:
             status="suspicious" if len(found) > 1 else "match",
         ))
 
-        if len(found) > 1:
+        if len(found) > 2:
+            # Allow up to 2 accounts — combined statements (e.g. savings + SRS,
+            # or current + credit card) are common and legitimate.
+            highlights: List[HighlightBox] = []
+            for num in found:
+                highlights.extend(self._search_all_pages(num, f"Account: ***{num[-4:]}"))
             self._add_indicator(
                 title="Multiple Different Account Numbers Detected",
-                description=f"Found {len(found)} distinct account numbers in a single statement. A genuine bank statement covers exactly one account.",
+                description=f"Found {len(found)} distinct account numbers in a single statement. While combined statements may cover 2 accounts, more than 2 suggests pages from different documents were merged.",
                 severity=IndicatorSeverity.HIGH,
                 details=f"Account numbers (masked): {['***' + n[-4:] for n in found]}",
                 confidence=89.0,
+                highlights=highlights,
             )
 
     def _check_account_name_consistency(self, text: str):
@@ -740,21 +1247,29 @@ class DocumentFraudDetector:
                 pass
 
         if len(weekend_txns) > 3:
+            highlights: List[HighlightBox] = []
+            for d in weekend_txns[:6]:
+                highlights.extend(self._search_all_pages(d, f"Weekend txn: {d}"))
             self._add_indicator(
                 title="Multiple Transactions on Weekends",
                 description=f"{len(weekend_txns)} transactions dated on weekends. Bank-posted transactions (ACH, wire, direct deposit) typically do not process on Saturdays or Sundays. A high count suggests backdated or fabricated entries.",
                 severity=IndicatorSeverity.MEDIUM,
                 details=f"Weekend dates: {weekend_txns[:8]}",
                 confidence=67.0,
+                highlights=highlights,
             )
 
         if holiday_txns:
+            highlights = []
+            for d in holiday_txns[:4]:
+                highlights.extend(self._search_all_pages(d, f"Bank holiday txn: {d}"))
             self._add_indicator(
                 title="Transactions Dated on Bank Holidays",
                 description=f"Transactions found on known US bank holidays: {holiday_txns}. Banks do not process ACH or wire transfers on federal holidays.",
                 severity=IndicatorSeverity.MEDIUM,
                 details=f"Holiday dates: {holiday_txns}",
                 confidence=72.0,
+                highlights=highlights,
             )
 
     def _check_generic_deposit_descriptions(self, text_lower: str):
@@ -787,16 +1302,32 @@ class DocumentFraudDetector:
             )
 
     def _check_watermarks(self, text_lower: str):
-        """Detect sample/draft/void watermark text."""
-        patterns = [r'\bsample\b', r'\bdraft\b', r'\bvoid\b', r'\bspecimen\b', r'\btest\b']
-        found = [p.strip(r'\b') for p in patterns if re.search(p, text_lower)]
+        """Detect sample/draft/void watermark text.
+
+        Excludes legitimate banking phrases that contain these words:
+        'demand draft', 'bank draft', 'draft account', 'overdraft',
+        'test drive', 'void cheque' (some banks print this legitimately), etc.
+        """
+        # Remove known-legitimate multi-word phrases before scanning for keywords
+        scrubbed = re.sub(
+            r'\b(?:demand\s+draft|bank\s+draft|draft\s+account|over\s*draft|'
+            r'test\s+drive|test\s+user|void\s+cheque|void\s+check)\b',
+            ' ', text_lower
+        )
+        patterns = [r'\bsample\b', r'\bdraft\b', r'\bvoid\b', r'\bspecimen\b']
+        found = [p.strip(r'\b') for p in patterns if re.search(p, scrubbed)]
         if found:
+            highlights: List[HighlightBox] = []
+            for kw in found:
+                highlights.extend(self._search_all_pages(kw.upper(), f"Watermark: {kw.upper()}"))
+                highlights.extend(self._search_all_pages(kw.capitalize(), f"Watermark: {kw}"))
             self._add_indicator(
                 title="Sample / Draft Watermark Text Detected",
                 description="Words like 'SAMPLE', 'DRAFT', 'VOID', or 'SPECIMEN' found — indicates a template document presented as genuine.",
                 severity=IndicatorSeverity.HIGH,
                 details=f"Keywords: {found}",
                 confidence=85.0,
+                highlights=highlights,
             )
 
     def _check_currency_formatting(self, text: str):
@@ -866,7 +1397,415 @@ class DocumentFraudDetector:
                 confidence=73.0,
             )
 
+    def _check_benfords_law(self, text: str):
+        """Apply Benford's Law to first digits of transaction amounts.
+
+        Genuine financial data follows Benford's distribution — forged statements
+        where figures are manually invented tend to deviate significantly because
+        humans unconsciously over-use mid-range digits (5, 6, 7) and avoid 1.
+        """
+        raw_amounts = re.findall(r'\b([1-9][\d,]*\.\d{2})\b', text)
+        first_digits: List[int] = []
+        for a in raw_amounts:
+            try:
+                v = float(a.replace(',', ''))
+                if v >= 10.0:  # Ignore sub-$10 amounts — too common as fees/charges
+                    first_digits.append(int(str(int(v))[0]))
+            except Exception:
+                pass
+
+        if len(first_digits) < BENFORD_MIN_SAMPLES:
+            return
+
+        total = len(first_digits)
+        digit_counts = Counter(first_digits)
+        deviating: List[Tuple[int, float, float]] = []
+
+        for d in range(1, 10):
+            observed = digit_counts.get(d, 0) / total
+            expected = BENFORD_EXPECTED[d]
+            if abs(observed - expected) > BENFORD_DEVIATION_THRESHOLD:
+                deviating.append((d, round(observed * 100, 1), round(expected * 100, 1)))
+
+        if len(deviating) >= 3:
+            detail_parts = [f"digit {d}: {obs}% observed vs {exp}% expected" for d, obs, exp in deviating]
+            self._add_indicator(
+                title="Benford's Law Violation",
+                description=(
+                    f"First-digit frequency analysis of {total} transaction amounts deviates "
+                    f"significantly from Benford's Law on {len(deviating)} digits. "
+                    "Genuine financial records naturally follow this logarithmic distribution; "
+                    "fabricated figures invented by humans consistently violate it."
+                ),
+                severity=IndicatorSeverity.HIGH,
+                details=" | ".join(detail_parts),
+                confidence=82.0,
+            )
+        elif len(deviating) >= 2:
+            self._add_indicator(
+                title="Partial Benford's Law Deviation",
+                description=(
+                    f"First-digit analysis of {total} amounts shows deviation on {len(deviating)} digits. "
+                    "May indicate partially fabricated transaction data."
+                ),
+                severity=IndicatorSeverity.MEDIUM,
+                details=" | ".join(
+                    f"digit {d}: {obs}% vs {exp}% expected"
+                    for d, obs, exp in deviating
+                ),
+                confidence=65.0,
+            )
+
+        self.metadata_entries.append(MetadataEntry(
+            field="Benford's Law Check",
+            original_text=f"{total} amounts sampled",
+            new_text=f"{len(deviating)} digit(s) deviate" if deviating else "Pass",
+            status="suspicious" if len(deviating) >= 2 else "match",
+        ))
+
+    def _check_duplicate_transactions(self, text: str):
+        """Detect copy-pasted duplicate transaction rows.
+
+        Fraudsters often inflate account activity by duplicating genuine transaction
+        lines verbatim, forgetting that each transaction should be unique.
+        """
+        # Normalise lines: keep only those with a monetary amount and enough content
+        candidate_lines = [
+            re.sub(r'\s+', ' ', l.strip())
+            for l in text.splitlines()
+            if re.search(r'\d+\.\d{2}', l) and len(l.strip()) > 25
+        ]
+
+        counts = Counter(candidate_lines)
+        exact_dupes = [(line, cnt) for line, cnt in counts.items() if cnt >= 3]
+        near_dupes_count = 0
+
+        # Near-duplicate check: same amount, same description ignoring date
+        amount_desc_pairs: Dict[str, int] = {}
+        for line in candidate_lines:
+            # Strip leading date-like tokens (MM/DD, DD-MM-YYYY, etc.)
+            stripped = re.sub(r'^\s*\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?\s*', '', line)
+            amount_desc_pairs[stripped] = amount_desc_pairs.get(stripped, 0) + 1
+        near_dupes = [(d, c) for d, c in amount_desc_pairs.items() if c >= 3 and len(d) > 20]
+        near_dupes_count = len(near_dupes)
+
+        if exact_dupes:
+            highlights: List[HighlightBox] = []
+            for line, _ in exact_dupes[:3]:
+                # Search for a distinctive middle fragment (skip leading date, cap length)
+                fragment = re.sub(r'^\S+\s+', '', line)[:40].strip()
+                if len(fragment) >= 6:
+                    highlights.extend(self._search_all_pages(fragment, "Duplicate row"))
+            self._add_indicator(
+                title="Exact Duplicate Transaction Rows",
+                description=(
+                    f"{len(exact_dupes)} transaction line(s) appear {exact_dupes[0][1]}+ times verbatim. "
+                    "Genuine bank-generated statements never repeat identical transaction rows — "
+                    "this is a clear sign of copy-paste fabrication."
+                ),
+                severity=IndicatorSeverity.HIGH,
+                details=f"Example duplicate: \"{exact_dupes[0][0][:80]}\"",
+                confidence=91.0,
+                highlights=highlights,
+            )
+        elif near_dupes_count >= 2:
+            self._add_indicator(
+                title="Near-Duplicate Transactions Detected",
+                description=(
+                    f"{near_dupes_count} transaction(s) share identical amounts and descriptions "
+                    "across different dates. Recurring amounts are normal (e.g. salary) but "
+                    "multiple near-identical entries suggest templated fabrication."
+                ),
+                severity=IndicatorSeverity.MEDIUM,
+                details=f"Repeated patterns: {near_dupes_count}",
+                confidence=68.0,
+            )
+
+        self.metadata_entries.append(MetadataEntry(
+            field="Duplicate Transaction Check",
+            original_text="None expected",
+            new_text=f"{len(exact_dupes)} exact duplicate(s)" if exact_dupes else "Pass",
+            status="mismatch" if exact_dupes else "match",
+        ))
+
+    def _check_transaction_date_ordering(self, text: str):
+        """Detect transactions that appear out of chronological order.
+
+        Genuine bank statements list transactions in strict date order (oldest to
+        newest or vice versa). Out-of-order entries indicate rows were inserted or
+        rearranged after the fact.
+        """
+        date_pattern = re.compile(
+            r'\b((?:0?[1-9]|1[0-2])[\/\-](?:0?[1-9]|[12]\d|3[01])(?:[\/\-](?:20\d{2}|\d{2}))?)\b'
+        )
+        parsed_dates: List[date] = []
+
+        for line in text.splitlines():
+            if not re.search(r'\d+\.\d{2}', line):
+                continue
+            m = date_pattern.search(line)
+            if not m:
+                continue
+            raw = m.group(1)
+            parts = re.split(r'[\/\-]', raw)
+            try:
+                month, day = int(parts[0]), int(parts[1])
+                year = int(parts[2]) if len(parts) == 3 else datetime.now().year
+                if year < 100:
+                    year += 2000
+                parsed_dates.append(date(year, month, day))
+            except Exception:
+                pass
+
+        if len(parsed_dates) < 6:
+            return
+
+        # Detect inversions relative to the predominant ordering direction
+        asc_violations = sum(
+            1 for i in range(1, len(parsed_dates)) if parsed_dates[i] < parsed_dates[i - 1]
+        )
+        desc_violations = sum(
+            1 for i in range(1, len(parsed_dates)) if parsed_dates[i] > parsed_dates[i - 1]
+        )
+        violations = min(asc_violations, desc_violations)
+
+        if violations >= 3:
+            self._add_indicator(
+                title="Out-of-Order Transaction Dates",
+                description=(
+                    f"{violations} date ordering violation(s) found across {len(parsed_dates)} "
+                    "dated transaction rows. Bank-generated statements always present transactions "
+                    "in strict chronological order; inversions indicate rows were inserted or "
+                    "rearranged after generation."
+                ),
+                severity=IndicatorSeverity.HIGH,
+                details=f"Ordering violations: {violations} / {len(parsed_dates)} rows",
+                confidence=85.0,
+            )
+        elif violations >= 1:
+            self._add_indicator(
+                title="Transaction Date Sequence Anomaly",
+                description=f"Minor date ordering irregularity detected ({violations} violation(s)).",
+                severity=IndicatorSeverity.LOW,
+                details=f"Ordering violations: {violations} / {len(parsed_dates)} rows",
+                confidence=55.0,
+            )
+
+        self.metadata_entries.append(MetadataEntry(
+            field="Transaction Date Ordering",
+            original_text="Sequential expected",
+            new_text=f"{violations} violation(s)" if violations else "Pass",
+            status="suspicious" if violations >= 3 else "match",
+        ))
+
+    def _check_opening_closing_balance(self, text: str):
+        """Verify that closing balance from one period carries to the next page.
+
+        In multi-page statements the closing balance printed on page N should equal
+        the opening balance on page N+1. Mismatches expose page-swapping fraud where
+        pages from different genuine statements are spliced together.
+        """
+        pages_text = [page.get_text() for page in self.doc]
+        if len(pages_text) < 2:
+            return
+
+        closing_pattern = re.compile(
+            r'(?:closing|ending|end)\s*balance[^\d]*([\d,]+\.\d{2})', re.IGNORECASE
+        )
+        opening_pattern = re.compile(
+            r'(?:opening|beginning|start(?:ing)?|brought\s+forward|b/?f)\s*balance[^\d]*([\d,]+\.\d{2})',
+            re.IGNORECASE,
+        )
+
+        mismatches = 0
+        for i in range(len(pages_text) - 1):
+            close_m = closing_pattern.search(pages_text[i])
+            open_m = opening_pattern.search(pages_text[i + 1])
+            if not close_m or not open_m:
+                continue
+            try:
+                closing_val = float(close_m.group(1).replace(',', ''))
+                opening_val = float(open_m.group(1).replace(',', ''))
+                if abs(closing_val - opening_val) > 0.02:
+                    mismatches += 1
+            except Exception:
+                pass
+
+        if mismatches >= 1:
+            self._add_indicator(
+                title="Opening/Closing Balance Mismatch Across Pages",
+                description=(
+                    f"Closing balance on {mismatches} page(s) does not match the opening balance "
+                    "on the following page. In a genuine statement these values must be identical — "
+                    "a mismatch proves pages were taken from different statements and spliced together."
+                ),
+                severity=IndicatorSeverity.HIGH,
+                details=f"Page-to-page balance continuity failures: {mismatches}",
+                confidence=93.0,
+            )
+            self.metadata_entries.append(MetadataEntry(
+                field="Opening/Closing Balance Continuity",
+                original_text="Match expected",
+                new_text=f"{mismatches} mismatch(es)",
+                status="mismatch",
+            ))
+        else:
+            self.metadata_entries.append(MetadataEntry(
+                field="Opening/Closing Balance Continuity",
+                original_text="Match",
+                new_text=None,
+                status="match",
+            ))
+
+    def _check_uniform_transaction_intervals(self, text: str):
+        """Detect transactions occurring at suspiciously regular time intervals.
+
+        Real spending is irregular. When a fraudster fabricates a statement by
+        assigning dates to invented transactions, they often space them out too
+        evenly (every 7, 14, or 30 days exactly), which is statistically implausible
+        for genuine transaction data.
+        """
+        date_pattern = re.compile(
+            r'\b((?:0?[1-9]|1[0-2])[\/\-](?:0?[1-9]|[12]\d|3[01])(?:[\/\-](?:20\d{2}|\d{2}))?)\b'
+        )
+        txn_dates: List[date] = []
+
+        for line in text.splitlines():
+            if not re.search(r'\d+\.\d{2}', line):
+                continue
+            m = date_pattern.search(line)
+            if not m:
+                continue
+            parts = re.split(r'[\/\-]', m.group(1))
+            try:
+                month, day = int(parts[0]), int(parts[1])
+                year = int(parts[2]) if len(parts) == 3 else datetime.now().year
+                if year < 100:
+                    year += 2000
+                txn_dates.append(date(year, month, day))
+            except Exception:
+                pass
+
+        unique_dates = sorted(set(txn_dates))
+        if len(unique_dates) < 8:
+            return
+
+        gaps = [(unique_dates[i + 1] - unique_dates[i]).days for i in range(len(unique_dates) - 1)]
+        if not gaps:
+            return
+
+        mean_gap = sum(gaps) / len(gaps)
+        variance = sum((g - mean_gap) ** 2 for g in gaps) / len(gaps)
+        std_dev = math.sqrt(variance)
+
+        # A coefficient of variation < 0.15 means gaps are suspiciously uniform
+        if mean_gap > 0 and (std_dev / mean_gap) < 0.15 and len(gaps) >= 7:
+            self._add_indicator(
+                title="Suspiciously Uniform Transaction Intervals",
+                description=(
+                    f"Transactions are spaced at nearly identical intervals "
+                    f"(avg {mean_gap:.1f} days, std dev {std_dev:.1f} days — CV {std_dev/mean_gap:.2f}). "
+                    "Real spending patterns show high variance in timing; artificial regularity "
+                    "strongly suggests dates were assigned programmatically or manually to "
+                    "fabricated transactions."
+                ),
+                severity=IndicatorSeverity.MEDIUM,
+                details=f"Mean gap: {mean_gap:.1f} days | Std dev: {std_dev:.1f} | {len(gaps)} intervals checked",
+                confidence=75.0,
+            )
+
+    def _check_implausible_income_expense_ratio(self, text: str):
+        """Flag statements where deposits vastly outweigh any outflows.
+
+        Fraudsters crafting a statement to show high income often forget to include
+        realistic outflow transactions, resulting in a balance that only grows with
+        no recognisable recurring expenses. This check combines the income volume
+        check with outflow analysis for a combined signal.
+        """
+        if self._is_image_only:
+            return
+
+        # Collect credit-side and debit-side amounts from lines containing directional keywords
+        credit_amounts: List[float] = []
+        debit_amounts: List[float] = []
+
+        for line in text.splitlines():
+            line_lower = line.lower()
+            amount_matches = re.findall(r'\b([\d,]+\.\d{2})\b', line)
+            amounts = []
+            for a in amount_matches:
+                try:
+                    amounts.append(float(a.replace(',', '')))
+                except Exception:
+                    pass
+            if not amounts:
+                continue
+            largest = max(amounts)
+
+            if any(kw in line_lower for kw in ['deposit', 'credit', 'salary', 'payroll', 'transfer in', 'received']):
+                credit_amounts.append(largest)
+            elif any(kw in line_lower for kw in ['debit', 'withdrawal', 'payment', 'purchase', 'charge', 'fee']):
+                debit_amounts.append(largest)
+
+        if len(credit_amounts) < 3 or len(debit_amounts) < 1:
+            return
+
+        total_credits = sum(credit_amounts)
+        total_debits = sum(debit_amounts)
+
+        if total_debits == 0:
+            return
+
+        ratio = total_credits / total_debits
+        if ratio > 15.0 and total_credits > 5000:
+            self._add_indicator(
+                title="Implausible Income-to-Expense Ratio",
+                description=(
+                    f"Total credited amounts ({total_credits:,.2f}) are {ratio:.0f}× larger than "
+                    f"total debited amounts ({total_debits:,.2f}). "
+                    "Real bank statements show a balanced mix of income and expenses; "
+                    "an extreme ratio suggests the statement was fabricated to inflate income "
+                    "while omitting realistic daily spending."
+                ),
+                severity=IndicatorSeverity.MEDIUM,
+                details=f"Credits: {total_credits:,.2f} | Debits: {total_debits:,.2f} | Ratio: {ratio:.1f}×",
+                confidence=72.0,
+            )
+
     # ─── Helpers ─────────────────────────────────────────────────────────────
+
+    def _search_all_pages(self, query: str, label: str, max_per_page: int = 3) -> List[HighlightBox]:
+        """Search every page for `query` and return bounding boxes.
+
+        Uses PyMuPDF's page.search_for() on PDFs with a native text layer.
+        Falls back to _ocr_search_highlights() for image-only PDFs after OCR.
+        """
+        results: List[HighlightBox] = []
+        query = query.strip()
+        if not query or len(query) < 3:
+            return results
+
+        # For image-only PDFs that have been OCR-ed, use the OCR word list
+        if self._native_text_empty and self._ocr_words:
+            return self._ocr_search_highlights(query, label, max_per_page)
+
+        for page_num, page in enumerate(self.doc, start=1):
+            pw, ph = page.rect.width, page.rect.height
+            try:
+                rects = page.search_for(query)
+            except Exception:
+                continue
+            for rect in rects[:max_per_page]:
+                if rect.is_empty or rect.is_infinite:
+                    continue
+                results.append(HighlightBox(
+                    page=page_num,
+                    x0=rect.x0, y0=rect.y0,
+                    x1=rect.x1, y1=rect.y1,
+                    label=label,
+                    page_width=pw, page_height=ph,
+                ))
+        return results
 
     def _check_digital_signature(self) -> bool:
         try:
@@ -918,12 +1857,9 @@ class DocumentFraudDetector:
     # ─── Entry Point ─────────────────────────────────────────────────────────
 
     def run(self, document_id: str, filename: str) -> AnalysisResult:
-        metadata = self.analyze_metadata()
-        self.analyze_document_type()
-        self.analyze_fonts()
-        self.analyze_text_layers()
-        self.analyze_images()
-        self.analyze_structure()
+        # Part I: universal — applicable to any PDF document type
+        metadata = self.analyze_universal()
+        # Part II: content-based — bank-statement-specific heuristics
         self.analyze_financial_content()
 
         overall_risk, fraud_score = self.compute_risk()

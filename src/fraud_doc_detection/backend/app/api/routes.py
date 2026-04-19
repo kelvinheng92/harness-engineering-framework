@@ -11,6 +11,10 @@ from fastapi.responses import FileResponse
 
 from app.models.schemas import UploadResponse, AnalysisResult, DocumentListItem
 from app.services.fraud_detector import DocumentFraudDetector
+from app.services.ocr_service import OCRService
+
+# Shared OCR service instance — reuses HTTP connections across requests
+_ocr_service = OCRService()
 
 router = APIRouter()
 
@@ -75,7 +79,7 @@ async def analyze_document(document_id: str):
         with open(result_path) as f:
             return AnalysisResult(**json.load(f))
 
-    detector = DocumentFraudDetector(file_path)
+    detector = DocumentFraudDetector(file_path, ocr_service=_ocr_service)
     try:
         result = detector.run(document_id=document_id, filename=doc_info["filename"])
     finally:

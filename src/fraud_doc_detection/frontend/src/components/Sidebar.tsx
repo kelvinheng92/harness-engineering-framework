@@ -1,4 +1,4 @@
-import { Home, FileText, Settings, HelpCircle, Trash2 } from 'lucide-react'
+import { Home, FileText, Settings, Trash2 } from 'lucide-react'
 import type { DocumentListItem } from '../types'
 
 type Page = 'main' | 'settings'
@@ -97,7 +97,6 @@ export function Sidebar({ documents, selectedId, onSelect, onDelete, activePage,
           active={activePage === 'settings'}
           onClick={() => onNavigate('settings')}
         />
-        <NavItem icon={<HelpCircle size={14} />} label="Help" />
       </div>
     </aside>
   )
