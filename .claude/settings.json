@@ -15,14 +15,19 @@
       "Bash(hdfs:*)",
       "Bash(spark-submit:*)",
       "Bash(impala-shell:*)",
+      "Bash(npm:*)",
+      "Bash(pip:*)",
+      "Bash(uvicorn:*)",
+      "Bash(lsof:*)",
+      "Bash(bash:*)",
+      "Bash(node:*)",
+      "Bash(npx:*)",
       "Read(**)",
       "Write(**)"
     ],
     "deny": [
       "Bash(curl:*)",
       "Bash(wget:*)",
-      "Bash(pip install *)",
-      "Bash(npm install *)",
       "Bash(ssh:*)",
       "Bash(scp:*)",
       "Bash(nc:*)",
@@ -34,6 +39,7 @@
   },
   "model": "claude-sonnet-4-6",
   "enabledPlugins": {
-    "everything-claude-code@everything-claude-code": true
+    "everything-claude-code@everything-claude-code": true,
+    "feature-dev@claude-plugins-official": true
   }
 }

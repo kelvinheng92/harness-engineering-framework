@@ -73,3 +73,7 @@ logs/
 
 # Claude Code local settings (keep shared settings.json, ignore local overrides)
 .claude/settings.local.json
+
+# Fraud detection — uploaded documents and analysis results
+src/fraud_doc_detection/backend/uploads/
+src/fraud_doc_detection/backend/results/

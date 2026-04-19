@@ -1,5 +1,6 @@
-import { Shield, FileSearch, Type, Layers, Image, Binary, TrendingUp, ChevronDown, ChevronUp, StickyNote, Database } from 'lucide-react'
-import { useState } from 'react'
+import { Shield, FileSearch, Type, Layers, Image, Binary, TrendingUp, ChevronDown, ChevronUp, StickyNote, Database, Key, CheckCircle, XCircle, Loader2 } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { getStatus, saveApiKey } from '../utils/api'
 
 interface Check {
   name: string
@@ -23,36 +24,12 @@ const ALGORITHMS: Algorithm[] = [
     name: 'Metadata Analysis',
     description: 'Extracts and cross-validates all embedded PDF metadata fields to detect tampering, date manipulation, and suspicious creation toolchains.',
     checks: [
-      {
-        name: 'Modification Date Before Creation Date',
-        detail: 'Flags documents where the modification timestamp pre-dates the creation timestamp — a physically impossible state that indicates date tampering.',
-        severity: 'high',
-      },
-      {
-        name: 'PDF Created Long After Statement Period',
-        detail: 'Compares the PDF creation year against year references inside the document content. A genuine statement is generated close to its close date.',
-        severity: 'high',
-      },
-      {
-        name: 'Image Editing Software as PDF Creator',
-        detail: 'Detects when Photoshop, GIMP, or similar image editors are recorded as the PDF creator — a strong sign of visual forgery.',
-        severity: 'high',
-      },
-      {
-        name: 'Suspicious PDF Creator Tool',
-        detail: 'Matches the creator field against known document manipulation tools (PDFedit, SmallPDF, iLovePDF, Sejda, Canva, SodaPDF, etc.).',
-        severity: 'high',
-      },
-      {
-        name: 'Unknown or Missing Creator Metadata',
-        detail: 'Records an unknown creator tool or stripped metadata — deliberate removal of provenance is common in forged documents.',
-        severity: 'medium',
-      },
-      {
-        name: 'Unusually Large Date Gap',
-        detail: 'Flags a creation-to-modification gap exceeding 10 years, which is atypical for financial documents.',
-        severity: 'medium',
-      },
+      { name: 'Modification Date Before Creation Date', detail: 'Flags documents where the modification timestamp pre-dates the creation timestamp — a physically impossible state that indicates date tampering.', severity: 'high' },
+      { name: 'PDF Created Long After Statement Period', detail: 'Compares the PDF creation year against year references inside the document content. A genuine statement is generated close to its close date.', severity: 'high' },
+      { name: 'Image Editing Software as PDF Creator', detail: 'Detects when Photoshop, GIMP, or similar image editors are recorded as the PDF creator — a strong sign of visual forgery.', severity: 'high' },
+      { name: 'Suspicious PDF Creator Tool', detail: 'Matches the creator field against known document manipulation tools (PDFedit, SmallPDF, iLovePDF, Sejda, Canva, SodaPDF, etc.).', severity: 'high' },
+      { name: 'Unknown or Missing Creator Metadata', detail: 'Records an unknown creator tool or stripped metadata — deliberate removal of provenance is common in forged documents.', severity: 'medium' },
+      { name: 'Unusually Large Date Gap', detail: 'Flags a creation-to-modification gap exceeding 10 years, which is atypical for financial documents.', severity: 'medium' },
     ],
   },
   {
@@ -61,26 +38,10 @@ const ALGORITHMS: Algorithm[] = [
     name: 'Font Consistency Analysis',
     description: 'Analyses font families and sizes across all pages and numeric spans to identify value-level edits where individual figures were replaced.',
     checks: [
-      {
-        name: 'Inconsistent Font Usage Across Pages',
-        detail: 'Compares font sets page-by-page. Differing sets suggest pages from separate source documents were merged.',
-        severity: 'high',
-      },
-      {
-        name: 'Inconsistent Font Sizes in Numeric Fields',
-        detail: 'Computes the dominant font size among all numeric spans. Outlier sizes (>1.5pt deviation, low frequency) indicate individually edited figures.',
-        severity: 'high',
-      },
-      {
-        name: 'Excessive Number of Distinct Fonts',
-        detail: 'More than 15 distinct fonts in a single document far exceeds the 3–5 typical of a genuine bank statement, suggesting copy-paste assembly.',
-        severity: 'medium',
-      },
-      {
-        name: 'Intra-Line Font Fingerprint Mismatch',
-        detail: 'For every transaction row containing a monetary amount, all spans are expected to share an identical font fingerprint (name, size, bold/italic flags, colour). A single span that deviates from the rest of its row — especially on a numeric value — indicates that specific figure was replaced after the document was generated. Suppresses sub-0.3pt size differences to avoid false positives from rounding artefacts.',
-        severity: 'high',
-      },
+      { name: 'Inconsistent Font Usage Across Pages', detail: 'Compares font sets page-by-page. Differing sets suggest pages from separate source documents were merged.', severity: 'high' },
+      { name: 'Inconsistent Font Sizes in Numeric Fields', detail: 'Computes the dominant font size among all numeric spans. Outlier sizes (>1.5pt deviation, low frequency) indicate individually edited figures.', severity: 'high' },
+      { name: 'Excessive Number of Distinct Fonts', detail: 'More than 15 distinct fonts in a single document far exceeds the 3–5 typical of a genuine bank statement, suggesting copy-paste assembly.', severity: 'medium' },
+      { name: 'Intra-Line Font Fingerprint Mismatch', detail: 'For every transaction row containing a monetary amount, all spans are expected to share an identical font fingerprint (name, size, bold/italic flags, colour). A single span that deviates from the rest of its row — especially on a numeric value — indicates that specific figure was replaced after the document was generated. Suppresses sub-0.3pt size differences to avoid false positives from rounding artefacts.', severity: 'high' },
     ],
   },
   {
@@ -89,16 +50,8 @@ const ALGORITHMS: Algorithm[] = [
     name: 'Text Layer Analysis',
     description: 'Scans the PDF rendering pipeline for invisible or hidden text layers used to embed data invisible to human reviewers.',
     checks: [
-      {
-        name: 'Hidden Text Layer (Sub-0.5pt)',
-        detail: 'Detects text spans with font size below 0.5pt — effectively invisible but machine-readable, used to pass automated OCR checks or embed tracking data.',
-        severity: 'high',
-      },
-      {
-        name: 'White-on-White Invisible Text',
-        detail: 'Identifies white-coloured text (color value 0xFFFFFF) rendered on white backgrounds — content hidden from reviewers but present in the PDF byte stream.',
-        severity: 'high',
-      },
+      { name: 'Hidden Text Layer (Sub-0.5pt)', detail: 'Detects text spans with font size below 0.5pt — effectively invisible but machine-readable, used to pass automated OCR checks or embed tracking data.', severity: 'high' },
+      { name: 'White-on-White Invisible Text', detail: 'Identifies white-coloured text (color value 0xFFFFFF) rendered on white backgrounds — content hidden from reviewers but present in the PDF byte stream.', severity: 'high' },
     ],
   },
   {
@@ -107,16 +60,8 @@ const ALGORITHMS: Algorithm[] = [
     name: 'Image Analysis',
     description: 'Examines embedded images for resolution anomalies and artefacts that indicate logos or graphics were sourced from the web or screenshots rather than generated by a banking system.',
     checks: [
-      {
-        name: 'Low-Resolution Images (Copied Logo)',
-        detail: "Estimates effective DPI for each embedded image relative to page width. Images below 72 DPI suggest logos were copied from a website screenshot rather than rendered by the bank's PDF generator.",
-        severity: 'medium',
-      },
-      {
-        name: 'Suspicious Micro-Images Embedded',
-        detail: 'Images smaller than 50×50 pixels are artefacts of image-based text replacement or tracking pixels with no legitimate purpose in a financial document.',
-        severity: 'medium',
-      },
+      { name: 'Low-Resolution Images (Copied Logo)', detail: "Estimates effective DPI for each embedded image relative to page width. Images below 72 DPI suggest logos were copied from a website screenshot rather than rendered by the bank's PDF generator.", severity: 'medium' },
+      { name: 'Suspicious Micro-Images Embedded', detail: 'Images smaller than 50×50 pixels are artefacts of image-based text replacement or tracking pixels with no legitimate purpose in a financial document.', severity: 'medium' },
     ],
   },
   {
@@ -125,26 +70,10 @@ const ALGORITHMS: Algorithm[] = [
     name: 'PDF Structure Analysis',
     description: 'Inspects the raw binary structure of the PDF file for revision markers, scripts, and editable form fields that are inconsistent with bank-generated documents.',
     checks: [
-      {
-        name: 'No Text Layer — Image-Only PDF',
-        detail: 'Genuine bank statements are digitally generated and always contain a searchable text layer. An image-only PDF suggests the document was printed and re-scanned to erase digital metadata and editing traces.',
-        severity: 'high',
-      },
-      {
-        name: 'Multiple Document Revisions (%%EOF count)',
-        detail: 'Counts %%EOF markers in the raw PDF byte stream. Each additional marker represents an incremental save — i.e., a post-creation edit. Genuine statements are written once.',
-        severity: 'high',
-      },
-      {
-        name: 'JavaScript Embedded in PDF',
-        detail: 'Detects /JavaScript and /JS objects. Financial documents never require scripts; their presence may indicate viewer manipulation or data exfiltration attempts.',
-        severity: 'high',
-      },
-      {
-        name: 'Editable Form Fields (AcroForm)',
-        detail: 'Detects /AcroForm objects. Bank statements are read-only; fillable form fields suggest the document was designed for manual value entry.',
-        severity: 'medium',
-      },
+      { name: 'No Text Layer — Image-Only PDF', detail: 'Genuine bank statements are digitally generated and always contain a searchable text layer. An image-only PDF suggests the document was printed and re-scanned to erase digital metadata and editing traces.', severity: 'high' },
+      { name: 'Multiple Document Revisions (%%EOF count)', detail: 'Counts %%EOF markers in the raw PDF byte stream. Each additional marker represents an incremental save — i.e., a post-creation edit. Genuine statements are written once.', severity: 'high' },
+      { name: 'JavaScript Embedded in PDF', detail: 'Detects /JavaScript and /JS objects. Financial documents never require scripts; their presence may indicate viewer manipulation or data exfiltration attempts.', severity: 'high' },
+      { name: 'Editable Form Fields (AcroForm)', detail: 'Detects /AcroForm objects. Bank statements are read-only; fillable form fields suggest the document was designed for manual value entry.', severity: 'medium' },
     ],
   },
   {
@@ -173,106 +102,26 @@ const ALGORITHMS: Algorithm[] = [
     name: 'Financial Content Analysis',
     description: 'Heuristic analysis of statement text for bank-statement-specific red flags — mathematical consistency, transaction patterns, formatting conventions, and expected spending behaviour.',
     checks: [
-      {
-        name: 'Running Balance Math Verification',
-        detail: 'Extracts lines containing three consecutive numeric values and verifies that the third equals the sum or difference of the first two (debit/credit → new balance). Two or more failures indicate manually altered figures.',
-        severity: 'high',
-      },
-      {
-        name: 'Multiple Different Account Numbers',
-        detail: 'Searches for account number patterns near keywords like "Account No." across all pages. More than one distinct number in a single statement indicates page-swapping or composite assembly.',
-        severity: 'high',
-      },
-      {
-        name: 'Account Holder Name Inconsistency',
-        detail: 'Extracts customer name fields from each page individually. Different names on different pages strongly indicate page-swapping — replacing pages from a genuine statement with forged ones.',
-        severity: 'high',
-      },
-      {
-        name: 'Sample / Draft Watermark Text',
-        detail: 'Regex search for keywords: SAMPLE, DRAFT, VOID, SPECIMEN, TEST. Their presence indicates a template document being passed off as genuine.',
-        severity: 'high',
-      },
-      {
-        name: 'Benford\'s Law Violation',
-        detail: 'Applies Benford\'s Law (logarithmic first-digit distribution) to all transaction amounts ≥ $10. Genuine financial data closely follows this distribution; manually invented figures deviate because humans unconsciously over-use mid-range digits (5–7) and avoid 1. Three or more deviating digits trigger a high-severity flag.',
-        severity: 'high',
-      },
-      {
-        name: 'Exact Duplicate Transaction Rows',
-        detail: 'Identifies transaction lines that appear verbatim 3+ times. Bank-generated statements never repeat identical rows — copy-paste fabrication leaves this forensic trace.',
-        severity: 'high',
-      },
-      {
-        name: 'Out-of-Order Transaction Dates',
-        detail: 'Parses dates from all transaction rows and checks for chronological inversions. Genuine statements list transactions in strict date order; out-of-sequence entries indicate rows were inserted after generation.',
-        severity: 'high',
-      },
-      {
-        name: 'Opening / Closing Balance Mismatch Across Pages',
-        detail: 'Verifies that the closing balance printed at the bottom of page N matches the opening balance at the top of page N+1. Any mismatch proves pages were taken from different statements and spliced together.',
-        severity: 'high',
-      },
-      {
-        name: 'Suspiciously Round Transaction Amounts',
-        detail: 'When over 70% of monetary values are perfectly divisible by 100 (e.g. $1,000.00, $5,000.00), the distribution is inconsistent with organic everyday spending.',
-        severity: 'medium',
-      },
-      {
-        name: 'Identical Deposit Amounts Repeated',
-        detail: 'Flags amounts ≥ $500 that appear 4+ times identically. While a single recurring salary is expected, multiple large identical values suggest fabricated data.',
-        severity: 'medium',
-      },
-      {
-        name: 'No Everyday Expense Categories',
-        detail: 'Checks for ~30 keywords across groceries, utilities, fuel, dining, subscriptions, and rent. A personal account with no everyday expenses is highly abnormal.',
-        severity: 'medium',
-      },
-      {
-        name: 'Multiple Weekend Transactions',
-        detail: 'Parses all date patterns and checks for Saturday/Sunday. ACH, wire, and direct deposit do not process on weekends — more than 3 such transactions indicates backdated or fabricated entries.',
-        severity: 'medium',
-      },
-      {
-        name: 'Transactions on Bank Holidays',
-        detail: 'Flags transaction dates matching known US federal bank holidays (New Year, Independence Day, Thanksgiving, Christmas, Veterans Day). Banks do not post transfers on these dates.',
-        severity: 'medium',
-      },
-      {
-        name: 'Generic Transaction Descriptions',
-        detail: 'When ≥60% of deposit/credit lines use vague labels ("DEPOSIT", "TRANSFER IN") with no specific employer or sender name, it suggests fabricated income entries.',
-        severity: 'medium',
-      },
-      {
-        name: 'Inconsistent Currency Formatting',
-        detail: 'Detects amounts with non-standard decimal grouping (e.g. $1,23 instead of $1,234.00) — a sign that values were sourced from a different locale or copy-pasted from a foreign document.',
-        severity: 'medium',
-      },
-      {
-        name: 'Misaligned Column Formatting',
-        detail: 'Measures the character position of the rightmost decimal point on each transaction row. If more than 30% of rows deviate >15 characters from the mean, columns are misaligned — a sign of manual value editing.',
-        severity: 'medium',
-      },
-      {
-        name: 'Suspiciously Uniform Transaction Intervals',
-        detail: 'Computes the coefficient of variation (std dev / mean) of gaps between unique transaction dates. A CV below 0.15 across 8+ intervals means transactions are spaced too evenly — real spending is irregular; fabricated dates are often assigned at regular intervals.',
-        severity: 'medium',
-      },
-      {
-        name: 'Implausible Income-to-Expense Ratio',
-        detail: 'Sums all credit-side and debit-side amounts identified by directional keywords. A ratio above 15× (credits vastly exceed debits) with total credits >$5,000 suggests the statement was fabricated to inflate income while omitting realistic daily outflows.',
-        severity: 'medium',
-      },
-      {
-        name: 'Near-Duplicate Transactions Detected',
-        detail: 'Strips leading date tokens from transaction rows and counts repeats. The same amount and description appearing 3+ times across different dates may indicate templated fabrication.',
-        severity: 'medium',
-      },
-      {
-        name: 'Very Few Everyday Expense Categories',
-        detail: 'A softer variant of the expense check: 1–2 recognised expense categories found triggers a low-severity flag rather than medium.',
-        severity: 'low',
-      },
+      { name: 'Running Balance Math Verification', detail: 'Extracts lines containing three consecutive numeric values and verifies that the third equals the sum or difference of the first two (debit/credit → new balance). Two or more failures indicate manually altered figures.', severity: 'high' },
+      { name: 'Multiple Different Account Numbers', detail: 'Searches for account number patterns near keywords like "Account No." across all pages. More than one distinct number in a single statement indicates page-swapping or composite assembly.', severity: 'high' },
+      { name: 'Account Holder Name Inconsistency', detail: 'Extracts customer name fields from each page individually. Different names on different pages strongly indicate page-swapping — replacing pages from a genuine statement with forged ones.', severity: 'high' },
+      { name: 'Sample / Draft Watermark Text', detail: 'Regex search for keywords: SAMPLE, DRAFT, VOID, SPECIMEN, TEST. Their presence indicates a template document being passed off as genuine.', severity: 'high' },
+      { name: "Benford's Law Violation", detail: "Applies Benford's Law (logarithmic first-digit distribution) to all transaction amounts ≥ $10. Genuine financial data closely follows this distribution; manually invented figures deviate because humans unconsciously over-use mid-range digits (5–7) and avoid 1. Three or more deviating digits trigger a high-severity flag.", severity: 'high' },
+      { name: 'Exact Duplicate Transaction Rows', detail: 'Identifies transaction lines that appear verbatim 3+ times. Bank-generated statements never repeat identical rows — copy-paste fabrication leaves this forensic trace.', severity: 'high' },
+      { name: 'Out-of-Order Transaction Dates', detail: 'Parses dates from all transaction rows and checks for chronological inversions. Genuine statements list transactions in strict date order; out-of-sequence entries indicate rows were inserted after generation.', severity: 'high' },
+      { name: 'Opening / Closing Balance Mismatch Across Pages', detail: 'Verifies that the closing balance printed at the bottom of page N matches the opening balance at the top of page N+1. Any mismatch proves pages were taken from different statements and spliced together.', severity: 'high' },
+      { name: 'Suspiciously Round Transaction Amounts', detail: 'When over 70% of monetary values are perfectly divisible by 100 (e.g. $1,000.00, $5,000.00), the distribution is inconsistent with organic everyday spending.', severity: 'medium' },
+      { name: 'Identical Deposit Amounts Repeated', detail: 'Flags amounts ≥ $500 that appear 4+ times identically. While a single recurring salary is expected, multiple large identical values suggest fabricated data.', severity: 'medium' },
+      { name: 'No Everyday Expense Categories', detail: 'Checks for ~30 keywords across groceries, utilities, fuel, dining, subscriptions, and rent. A personal account with no everyday expenses is highly abnormal.', severity: 'medium' },
+      { name: 'Multiple Weekend Transactions', detail: 'Parses all date patterns and checks for Saturday/Sunday. ACH, wire, and direct deposit do not process on weekends — more than 3 such transactions indicates backdated or fabricated entries.', severity: 'medium' },
+      { name: 'Transactions on Bank Holidays', detail: 'Flags transaction dates matching known US federal bank holidays (New Year, Independence Day, Thanksgiving, Christmas, Veterans Day). Banks do not post transfers on these dates.', severity: 'medium' },
+      { name: 'Generic Transaction Descriptions', detail: 'When ≥60% of deposit/credit lines use vague labels ("DEPOSIT", "TRANSFER IN") with no specific employer or sender name, it suggests fabricated income entries.', severity: 'medium' },
+      { name: 'Inconsistent Currency Formatting', detail: 'Detects amounts with non-standard decimal grouping (e.g. $1,23 instead of $1,234.00) — a sign that values were sourced from a different locale or copy-pasted from a foreign document.', severity: 'medium' },
+      { name: 'Misaligned Column Formatting', detail: 'Measures the character position of the rightmost decimal point on each transaction row. If more than 30% of rows deviate >15 characters from the mean, columns are misaligned — a sign of manual value editing.', severity: 'medium' },
+      { name: 'Suspiciously Uniform Transaction Intervals', detail: 'Computes the coefficient of variation (std dev / mean) of gaps between unique transaction dates. A CV below 0.15 across 8+ intervals means transactions are spaced too evenly — real spending is irregular; fabricated dates are often assigned at regular intervals.', severity: 'medium' },
+      { name: 'Implausible Income-to-Expense Ratio', detail: 'Sums all credit-side and debit-side amounts identified by directional keywords. A ratio above 15× (credits vastly exceed debits) with total credits >$5,000 suggests the statement was fabricated to inflate income while omitting realistic daily outflows.', severity: 'medium' },
+      { name: 'Near-Duplicate Transactions Detected', detail: 'Strips leading date tokens from transaction rows and counts repeats. The same amount and description appearing 3+ times across different dates may indicate templated fabrication.', severity: 'medium' },
+      { name: 'Very Few Everyday Expense Categories', detail: 'A softer variant of the expense check: 1–2 recognised expense categories found triggers a low-severity flag rather than medium.', severity: 'low' },
     ],
   },
 ]
@@ -302,7 +151,28 @@ const moduleIcon: Record<string, React.ReactNode> = {
   financial:   <TrendingUp size={16} />,
 }
 
-// ── Sub-components ──────────────────────────────────────────────────────────
+type Provider = 'groq' | 'openrouter' | 'gemini'
+
+const PROVIDER_INFO: Record<Provider, { label: string; free: string; vision: boolean; keyUrl: string }> = {
+  groq: {
+    label: 'Groq',
+    free: '14,400 req/day · resets hourly',
+    vision: true,
+    keyUrl: 'console.groq.com/keys',
+  },
+  openrouter: {
+    label: 'OpenRouter',
+    free: 'Free models (Llama 4, Gemini 2.0 Flash)',
+    vision: true,
+    keyUrl: 'openrouter.ai/keys',
+  },
+  gemini: {
+    label: 'Google Gemini',
+    free: '~1,500 req/day',
+    vision: true,
+    keyUrl: 'aistudio.google.com/app/apikey',
+  },
+}
 
 function SummaryTile({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
   return (
@@ -325,7 +195,6 @@ function CategorySection({ label, sublabel, algorithms, expanded, onToggle }: Ca
   const totalChecks = algorithms.reduce((s, a) => s + a.checks.length, 0)
   return (
     <div>
-      {/* Category header */}
       <div className="flex items-center gap-3 mb-3">
         <div>
           <h2 className="text-sm font-bold text-[#333333]">{label}</h2>
@@ -333,7 +202,6 @@ function CategorySection({ label, sublabel, algorithms, expanded, onToggle }: Ca
         </div>
       </div>
 
-      {/* Algorithm cards */}
       <div className="space-y-2">
         {algorithms.map((algo) => {
           const isOpen = !!expanded[algo.id]
@@ -413,95 +281,198 @@ function CategorySection({ label, sublabel, algorithms, expanded, onToggle }: Ca
   )
 }
 
-// ── Page ────────────────────────────────────────────────────────────────────
-
 export function SettingsPage() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({})
+  const [configured, setConfigured] = useState<boolean | null>(null)
+  const [activeProvider, setActiveProvider] = useState<Provider>('groq')
+  const [selectedProvider, setSelectedProvider] = useState<Provider>('groq')
+  const [apiKey, setApiKey] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
+
+  useEffect(() => {
+    getStatus()
+      .then((s) => {
+        setConfigured(s.gemini_configured)
+        if (s.provider) {
+          setActiveProvider(s.provider as Provider)
+          setSelectedProvider(s.provider as Provider)
+        }
+      })
+      .catch(() => setConfigured(false))
+  }, [])
+
+  const handleSaveKey = async () => {
+    if (!apiKey.trim()) return
+    setSaving(true)
+    setSaveMsg('')
+    try {
+      await saveApiKey(apiKey.trim(), selectedProvider)
+      setConfigured(true)
+      setActiveProvider(selectedProvider)
+      setSaveMsg(`Saved. Now using ${PROVIDER_INFO[selectedProvider].label}.`)
+      setApiKey('')
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } }; code?: string; message?: string }
+      if (axiosErr.code === 'ECONNABORTED') {
+        setSaveMsg('Request timed out. Is the backend running on port 8000?')
+      } else if (axiosErr.code === 'ERR_NETWORK') {
+        setSaveMsg('Cannot reach backend. Start the server with: uvicorn app.main:app --reload')
+      } else {
+        const detail = axiosErr.response?.data?.detail ?? axiosErr.message ?? 'Unknown error'
+        setSaveMsg(`Failed to save: ${detail}`)
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const toggle = (id: string) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }))
 
-  const allChecks   = ALGORITHMS.flatMap((a) => a.checks)
+  const allChecks = ALGORITHMS.flatMap((a) => a.checks)
   const totalChecks = allChecks.length
-  const highChecks  = allChecks.filter((c) => c.severity === 'high').length
+  const highChecks = allChecks.filter((c) => c.severity === 'high').length
   const universalChecks = UNIVERSAL.reduce((s, a) => s + a.checks.length, 0)
   const contentChecks   = CONTENT.reduce((s, a)   => s + a.checks.length, 0)
 
   return (
     <div className="flex-1 overflow-y-auto bg-[#f5f5f5] p-6">
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-3xl mx-auto space-y-6">
 
-        {/* Page header */}
-        <div className="mb-6">
-          <h1 className="text-xl font-bold text-[#333333]">Detection Algorithm Details</h1>
-          <p className="text-sm text-[#666666] mt-1">
+        {/* LLM Provider + API Key */}
+        <div className="bg-white rounded border border-[#e0e0e0] p-5">
+          <div className="flex items-center gap-2 mb-4">
+            <Key size={16} className="text-[#C8102E]" />
+            <h2 className="text-sm font-bold text-[#333333]">AI Provider</h2>
+            {configured === true && (
+              <span className="ml-auto flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded">
+                <CheckCircle size={11} /> {PROVIDER_INFO[activeProvider]?.label ?? 'Configured'}
+              </span>
+            )}
+            {configured === false && (
+              <span className="ml-auto flex items-center gap-1 text-xs text-red-700 bg-red-50 border border-red-200 px-2 py-0.5 rounded">
+                <XCircle size={11} /> Not configured
+              </span>
+            )}
+          </div>
+
+          {/* Provider cards */}
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {(Object.keys(PROVIDER_INFO) as Provider[]).map((p) => {
+              const info = PROVIDER_INFO[p]
+              const isActive = selectedProvider === p
+              return (
+                <button
+                  key={p}
+                  onClick={() => setSelectedProvider(p)}
+                  className={`text-left rounded border p-3 transition-all ${
+                    isActive
+                      ? 'border-[#C8102E] bg-[#fbeaed]'
+                      : 'border-[#e0e0e0] hover:border-[#C8102E] hover:bg-[#fbeaed]'
+                  }`}
+                >
+                  <p className={`text-xs font-semibold ${isActive ? 'text-[#C8102E]' : 'text-[#333333]'}`}>
+                    {info.label}
+                  </p>
+                  <p className="text-[10px] text-[#888888] mt-0.5 leading-tight">{info.free}</p>
+                </button>
+              )
+            })}
+          </div>
+
+          <p className="text-xs text-[#666666] mb-2">
+            Get a free key at{' '}
+            <span className="text-[#C8102E] font-medium">{PROVIDER_INFO[selectedProvider].keyUrl}</span>
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder={`Paste your ${PROVIDER_INFO[selectedProvider].label} API key…`}
+              className="flex-1 text-xs px-3 py-2 rounded border border-[#e0e0e0] focus:outline-none focus:border-[#C8102E] transition-colors"
+              onKeyDown={(e) => e.key === 'Enter' && handleSaveKey()}
+            />
+            <button
+              onClick={handleSaveKey}
+              disabled={!apiKey.trim() || saving}
+              className="px-4 py-2 bg-[#C8102E] text-white text-xs rounded hover:bg-[#a50d26] transition-colors font-medium disabled:opacity-40"
+            >
+              {saving ? <Loader2 size={12} className="animate-spin" /> : 'Save'}
+            </button>
+          </div>
+          {saveMsg && <p className="text-xs mt-2 text-[#555555]">{saveMsg}</p>}
+        </div>
+
+        {/* Algorithm details */}
+        <div>
+          <h1 className="text-xl font-bold text-[#333333] mb-1">Detection Algorithm Details</h1>
+          <p className="text-sm text-[#666666] mb-4">
             All fraud detection checks performed on each uploaded document, organised into two tiers.
           </p>
-        </div>
-
-        {/* Summary tiles */}
-        <div className="grid grid-cols-4 gap-3 mb-8">
-          <SummaryTile label="Total Modules"        value={String(ALGORITHMS.length)} />
-          <SummaryTile label="Total Checks"         value={String(totalChecks)} />
-          <SummaryTile label="High-Severity Checks" value={String(highChecks)} accent />
-          <SummaryTile label="Universal / Content"  value={`${universalChecks} / ${contentChecks}`} />
-        </div>
-
-        {/* Two-tier layout */}
-        <div className="space-y-8">
-
-          {/* Part I */}
-          <div className="rounded-lg border border-[#d6d6d6] overflow-hidden">
-            <div className="px-5 py-3 bg-[#1a1a2e] flex items-center gap-2">
-              <Database size={14} className="text-[#a0a8c0]" />
-              <span className="text-xs font-bold text-white tracking-wide uppercase">
-                Part I — Universal Checks
-              </span>
-              <span className="ml-auto text-[11px] text-[#a0a8c0]">
-                Applies to any PDF document type
-              </span>
-            </div>
-            <div className="p-4 bg-[#f5f5f5]">
-              <CategorySection
-                label="Universal (Non-Content-Based)"
-                sublabel="Inspects the PDF container — metadata, structure, fonts, images, text layers, annotations"
-                algorithms={UNIVERSAL}
-                expanded={expanded}
-                onToggle={toggle}
-              />
-            </div>
+          <div className="grid grid-cols-4 gap-3 mb-5">
+            <SummaryTile label="Total Modules"        value={String(ALGORITHMS.length)} />
+            <SummaryTile label="Total Checks"         value={String(totalChecks)} />
+            <SummaryTile label="High-Severity Checks" value={String(highChecks)} accent />
+            <SummaryTile label="Universal / Content"  value={`${universalChecks} / ${contentChecks}`} />
           </div>
 
-          {/* Part II */}
-          <div className="rounded-lg border border-[#d6d6d6] overflow-hidden">
-            <div className="px-5 py-3 bg-[#C8102E] flex items-center gap-2">
-              <TrendingUp size={14} className="text-white opacity-80" />
-              <span className="text-xs font-bold text-white tracking-wide uppercase">
-                Part II — Content-Based Checks
-              </span>
-              <span className="ml-auto text-[11px] text-red-100">
-                Bank-statement-specific heuristics
-              </span>
-            </div>
-            <div className="p-4 bg-[#f5f5f5]">
-              <CategorySection
-                label="Content-Based (Bank Statement Specific)"
-                sublabel="Parses extracted text for financial logic errors, implausible patterns, and fabricated data"
-                algorithms={CONTENT}
-                expanded={expanded}
-                onToggle={toggle}
-              />
-            </div>
-          </div>
+          <div className="space-y-8">
 
+            {/* Part I */}
+            <div className="rounded-lg border border-[#d6d6d6] overflow-hidden">
+              <div className="px-5 py-3 bg-[#1a1a2e] flex items-center gap-2">
+                <Database size={14} className="text-[#a0a8c0]" />
+                <span className="text-xs font-bold text-white tracking-wide uppercase">
+                  Part I — Universal Checks
+                </span>
+                <span className="ml-auto text-[11px] text-[#a0a8c0]">
+                  Applies to any PDF document type
+                </span>
+              </div>
+              <div className="p-4 bg-[#f5f5f5]">
+                <CategorySection
+                  label="Universal (Non-Content-Based)"
+                  sublabel="Inspects the PDF container — metadata, structure, fonts, images, text layers, annotations"
+                  algorithms={UNIVERSAL}
+                  expanded={expanded}
+                  onToggle={toggle}
+                />
+              </div>
+            </div>
+
+            {/* Part II */}
+            <div className="rounded-lg border border-[#d6d6d6] overflow-hidden">
+              <div className="px-5 py-3 bg-[#C8102E] flex items-center gap-2">
+                <TrendingUp size={14} className="text-white opacity-80" />
+                <span className="text-xs font-bold text-white tracking-wide uppercase">
+                  Part II — Content-Based Checks
+                </span>
+                <span className="ml-auto text-[11px] text-red-100">
+                  Bank-statement-specific heuristics
+                </span>
+              </div>
+              <div className="p-4 bg-[#f5f5f5]">
+                <CategorySection
+                  label="Content-Based (Bank Statement Specific)"
+                  sublabel="Parses extracted text for financial logic errors, implausible patterns, and fabricated data"
+                  algorithms={CONTENT}
+                  expanded={expanded}
+                  onToggle={toggle}
+                />
+              </div>
+            </div>
+
+          </div>
         </div>
 
-        {/* Footer */}
-        <div className="mt-6 px-4 py-3 bg-white rounded border border-[#e0e0e0] flex items-start gap-3">
+        <div className="px-4 py-3 bg-white rounded border border-[#e0e0e0] flex items-start gap-3">
           <Shield size={14} className="text-[#C8102E] flex-shrink-0 mt-0.5" />
           <p className="text-xs text-[#666666] leading-relaxed">
-            All checks run client-side within the analysis engine. No document content is transmitted beyond the local server. Results are cached per document and can be re-triggered at any time.
+            Rule-based fraud detection runs entirely on the local server — no document content is sent externally.
+            AI-powered features (Key Value Extraction, Document Q&A) send document pages to the configured LLM provider.
           </p>
         </div>
-
       </div>
     </div>
   )
