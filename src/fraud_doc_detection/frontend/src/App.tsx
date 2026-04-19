@@ -169,7 +169,7 @@ export default function App() {
     }
   }
 
-  const handleExtractKV = async (additionalKeys?: string[]) => {
+  const handleExtractKV = async (additionalKeys: string[] = []) => {
     if (!selectedDocId || !selectedDocType) return
     setKvLoading(true)
     setKvError(null)
@@ -243,16 +243,11 @@ export default function App() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5">
-              <Brain size={13} className={geminiConfigured ? 'text-green-600' : 'text-[#cccccc]'} />
-              <span className="text-xs text-[#888888]">
-                {geminiConfigured ? `${activeProvider} ready` : 'AI not configured'}
-              </span>
-            </div>
-            <button className="text-sm font-semibold text-[#C8102E] border border-[#C8102E] px-4 py-1.5 rounded hover:bg-[#fbeaed] transition-colors">
-              Sign In
-            </button>
+          <div className="flex items-center gap-1.5">
+            <Brain size={13} className={geminiConfigured ? 'text-green-600' : 'text-[#cccccc]'} />
+            <span className="text-xs text-[#888888]">
+              {geminiConfigured ? `${activeProvider} ready` : 'AI not configured'}
+            </span>
           </div>
         </header>
 

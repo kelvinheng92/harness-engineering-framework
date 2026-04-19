@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Table2, Loader2, RefreshCw, Plus, X } from 'lucide-react'
-import type { KVExtractionResult, DocumentType } from '../types'
+import type { KVExtractionResult, DocumentType, KeyValuePair } from '../types'
 
 interface KVPanelProps {
   documentId: string
@@ -8,7 +8,7 @@ interface KVPanelProps {
   result: KVExtractionResult | null
   loading: boolean
   error: string | null
-  onExtract: (additionalKeys?: string[]) => void
+  onExtract: (keys: string[]) => void
 }
 
 const DOC_TYPE_LABEL: Record<DocumentType, string> = {
@@ -35,6 +35,85 @@ const SUGGESTED_KEYS: Record<DocumentType, string[]> = {
   other: ['Total Amount', 'Issue Date', 'Reference Number', 'Account Holder', 'Balance'],
 }
 
+const TX_COLS = ['Date', 'Description', 'Debit', 'Credit', 'Balance']
+
+function parseTransactionRow(value: string): string[] {
+  const parts = value.split('|').map(s => s.trim())
+  // Pad / truncate to exactly 5 columns
+  while (parts.length < 5) parts.push('')
+  return parts.slice(0, 5)
+}
+
+function TransactionTable({ cat, pairs }: { cat: string; pairs: KeyValuePair[] }) {
+  // Detect whether values look pipe-delimited; fall back to simple key/value if not
+  const isPiped = pairs.some(p => p.value.includes('|'))
+
+  return (
+    <div className="bg-white rounded border border-[#e0e0e0]">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#f0f0f0]">
+        <span className="text-sm font-semibold text-[#333333]">{cat}</span>
+        <span className="text-xs text-[#888888]">{pairs.length} rows</span>
+      </div>
+      {isPiped ? (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-[#fafafa] border-b border-[#f0f0f0]">
+                {TX_COLS.map(col => (
+                  <th
+                    key={col}
+                    className="px-3 py-2 text-left text-[10px] font-semibold text-[#888888] uppercase tracking-wider whitespace-nowrap"
+                  >
+                    {col}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {pairs.map((pair, i) => {
+                const cols = parseTransactionRow(pair.value)
+                return (
+                  <tr
+                    key={i}
+                    className={`border-b border-[#f5f5f5] last:border-0 ${i % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'}`}
+                  >
+                    {cols.map((col, j) => (
+                      <td
+                        key={j}
+                        className={`px-3 py-2 text-[#333333] whitespace-nowrap ${
+                          j === 1 ? 'max-w-[200px] truncate' : ''
+                        } ${
+                          // colour debit red, credit green
+                          j === 2 && col ? 'text-red-600 font-medium' :
+                          j === 3 && col ? 'text-green-700 font-medium' : ''
+                        }`}
+                        title={j === 1 ? col : undefined}
+                      >
+                        {col || <span className="text-[#cccccc]">—</span>}
+                      </td>
+                    ))}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        // fallback: plain key-value rows
+        pairs.map((pair, i) => (
+          <div
+            key={i}
+            className={`flex items-start gap-3 px-4 py-2.5 ${i % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'}`}
+          >
+            <span className="text-xs text-[#888888] w-36 flex-shrink-0 pt-0.5">{pair.key}</span>
+            <span className="text-xs font-medium text-[#333333] break-words flex-1">{pair.value}</span>
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
 export function KVPanel({ documentType, result, loading, error, onExtract }: KVPanelProps) {
   const [inputValue, setInputValue] = useState('')
   const [additionalKeys, setAdditionalKeys] = useState<string[]>([])
@@ -58,12 +137,13 @@ export function KVPanel({ documentType, result, loading, error, onExtract }: KVP
   }
 
   function handleExtract() {
-    onExtract(additionalKeys.length ? additionalKeys : undefined)
+    onExtract(additionalKeys)
   }
 
   const grouped = result
     ? result.pairs.reduce<Record<string, typeof result.pairs>>((acc, pair) => {
         const cat = pair.category || 'General'
+        if (cat.toLowerCase() === 'footer') return acc
         if (!acc[cat]) acc[cat] = []
         acc[cat].push(pair)
         return acc
@@ -210,9 +290,9 @@ export function KVPanel({ documentType, result, loading, error, onExtract }: KVP
         </p>
       </div>
 
-      {/* Additional fields for re-extraction */}
+      {/* Re-extract with specific fields */}
       <div className="bg-white rounded border border-[#e0e0e0] p-4">
-        <p className="text-xs font-medium text-[#333333] mb-2">Extract additional fields</p>
+        <p className="text-xs font-medium text-[#333333] mb-2">Suggested fields</p>
         <div className="flex flex-wrap gap-1.5 mb-3">
           {suggestions.map(s => {
             const active = additionalKeys.includes(s)
@@ -264,6 +344,12 @@ export function KVPanel({ documentType, result, loading, error, onExtract }: KVP
       {/* Category tables */}
       {categories.map((cat) => {
         const pairs = grouped[cat]
+        const isTransactions = cat.toLowerCase().includes('transaction')
+
+        if (isTransactions) {
+          return <TransactionTable key={cat} cat={cat} pairs={pairs} />
+        }
+
         return (
           <div key={cat} className="bg-white rounded border border-[#e0e0e0]">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[#f0f0f0]">

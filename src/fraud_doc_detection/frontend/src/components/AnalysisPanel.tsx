@@ -11,12 +11,9 @@ interface AnalysisPanelProps {
   result: AnalysisResult
   onReanalyze: () => void
   analyzing: boolean
-  activeIndicatorId: string | null
-  onSelectIndicator: (id: string) => void
-  indicatorColorMap: Record<string, number>
 }
 
-export function AnalysisPanel({ result, onReanalyze, analyzing, activeIndicatorId, onSelectIndicator, indicatorColorMap }: AnalysisPanelProps) {
+export function AnalysisPanel({ result, onReanalyze, analyzing }: AnalysisPanelProps) {
   const [metaPage, setMetaPage] = useState(1)
   const [showAllIndicators, setShowAllIndicators] = useState(false)
 
@@ -103,9 +100,6 @@ export function AnalysisPanel({ result, onReanalyze, analyzing, activeIndicatorI
               <IndicatorCard
                 key={ind.id}
                 indicator={ind}
-                colorIndex={indicatorColorMap[ind.id]}
-                isActive={activeIndicatorId === ind.id}
-                onLocate={() => onSelectIndicator(ind.id)}
               />
             ))}
           </div>
@@ -121,9 +115,6 @@ export function AnalysisPanel({ result, onReanalyze, analyzing, activeIndicatorI
               <IndicatorCard
                 key={ind.id}
                 indicator={ind}
-                colorIndex={indicatorColorMap[ind.id]}
-                isActive={activeIndicatorId === ind.id}
-                onLocate={() => onSelectIndicator(ind.id)}
               />
             ))}
           </div>

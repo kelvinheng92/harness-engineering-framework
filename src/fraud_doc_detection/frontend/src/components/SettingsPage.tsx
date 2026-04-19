@@ -151,7 +151,7 @@ const moduleIcon: Record<string, React.ReactNode> = {
   financial:   <TrendingUp size={16} />,
 }
 
-type Provider = 'groq' | 'openrouter' | 'gemini'
+type Provider = 'groq' | 'openrouter' | 'gemini' | 'qwen'
 
 const PROVIDER_INFO: Record<Provider, { label: string; free: string; vision: boolean; keyUrl: string }> = {
   groq: {
@@ -171,6 +171,12 @@ const PROVIDER_INFO: Record<Provider, { label: string; free: string; vision: boo
     free: '~1,500 req/day',
     vision: true,
     keyUrl: 'aistudio.google.com/app/apikey',
+  },
+  qwen: {
+    label: 'Qwen (ModelStudio)',
+    free: 'Free quota on signup · qwen3.6-flash-2026-04-16',
+    vision: true,
+    keyUrl: 'bailian.console.aliyun.com',
   },
 }
 
@@ -357,7 +363,7 @@ export function SettingsPage() {
           </div>
 
           {/* Provider cards */}
-          <div className="grid grid-cols-3 gap-2 mb-4">
+          <div className="grid grid-cols-2 gap-2 mb-4">
             {(Object.keys(PROVIDER_INFO) as Provider[]).map((p) => {
               const info = PROVIDER_INFO[p]
               const isActive = selectedProvider === p

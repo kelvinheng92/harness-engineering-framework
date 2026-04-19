@@ -72,9 +72,8 @@ export async function classifyDocument(documentId: string): Promise<Classificati
 
 // ─── Key-Value Extraction ────────────────────────────────────────────────────
 
-export async function extractKeyValues(documentId: string, additionalKeys?: string[]): Promise<KVExtractionResult> {
-  const body = additionalKeys?.length ? { additional_keys: additionalKeys } : undefined
-  const { data } = await api.post<KVExtractionResult>(`/extract/${documentId}`, body)
+export async function extractKeyValues(documentId: string, additionalKeys: string[] = []): Promise<KVExtractionResult> {
+  const { data } = await api.post<KVExtractionResult>(`/extract/${documentId}`, { additional_keys: additionalKeys })
   return data
 }
 
