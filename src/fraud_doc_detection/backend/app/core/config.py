@@ -4,13 +4,14 @@ from typing import Literal
 
 ENV_FILE = Path(__file__).parent.parent.parent / ".env"
 
-LLMProvider = Literal["gemini", "groq", "openrouter"]
+LLMProvider = Literal["gemini", "groq", "openrouter", "qwen"]
 
 
 class Settings(BaseSettings):
     gemini_api_key: str = ""
     groq_api_key: str = ""
     openrouter_api_key: str = ""
+    qwen_api_key: str = ""
     llm_provider: LLMProvider = "groq"
 
     model_config = SettingsConfigDict(env_file=str(ENV_FILE), extra="ignore")
@@ -20,6 +21,7 @@ class Settings(BaseSettings):
             "gemini": self.gemini_api_key,
             "groq": self.groq_api_key,
             "openrouter": self.openrouter_api_key,
+            "qwen": self.qwen_api_key,
         }.get(self.llm_provider, "")
 
     def is_configured(self) -> bool:
@@ -30,6 +32,7 @@ class Settings(BaseSettings):
         self.gemini_api_key = fresh.gemini_api_key
         self.groq_api_key = fresh.groq_api_key
         self.openrouter_api_key = fresh.openrouter_api_key
+        self.qwen_api_key = fresh.qwen_api_key
         self.llm_provider = fresh.llm_provider
 
 

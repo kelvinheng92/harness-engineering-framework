@@ -10,6 +10,17 @@ export type DocumentType =
   | 'financial_statement'
   | 'other'
 
+export interface HighlightBox {
+  page: number
+  x0: number
+  y0: number
+  x1: number
+  y1: number
+  label: string
+  page_width: number
+  page_height: number
+}
+
 export interface FraudIndicator {
   id: string
   title: string
@@ -17,6 +28,7 @@ export interface FraudIndicator {
   severity: IndicatorSeverity
   details?: string
   confidence: number
+  highlights?: HighlightBox[]
 }
 
 export interface MetadataEntry {

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Table2, Loader2, RefreshCw, Plus, X } from 'lucide-react'
-import type { KVExtractionResult, DocumentType } from '../types'
+import type { KVExtractionResult, DocumentType, KeyValuePair } from '../types'
 
 interface KVPanelProps {
   documentId: string
@@ -8,7 +8,7 @@ interface KVPanelProps {
   result: KVExtractionResult | null
   loading: boolean
   error: string | null
-  onExtract: (additionalKeys?: string[]) => void
+  onExtract: (keys: string[]) => void
 }
 
 const DOC_TYPE_LABEL: Record<DocumentType, string> = {
@@ -35,6 +35,179 @@ const SUGGESTED_KEYS: Record<DocumentType, string[]> = {
   other: ['Total Amount', 'Issue Date', 'Reference Number', 'Account Holder', 'Balance'],
 }
 
+const TX_COLS = ['Date', 'Description', 'Debit', 'Credit', 'Balance']
+
+function parseTransactionRow(value: string): string[] {
+  const parts = value.split('|').map(s => s.trim())
+  while (parts.length < 5) parts.push('')
+  return parts.slice(0, 5)
+}
+
+/**
+ * Detect whether pairs follow a repeating field-group pattern.
+ * Returns the ordered column names if detected, otherwise [].
+ * Example: [TX date, Posting date, Description, Amount, TX date, ...] → 4 columns.
+ */
+function detectFieldCycle(pairs: KeyValuePair[]): string[] {
+  if (pairs.length < 2) return []
+  const firstKey = pairs[0].key
+  for (let i = 1; i < pairs.length && i < 12; i++) {
+    if (pairs[i].key === firstKey) {
+      return pairs.slice(0, i).map(p => p.key)
+    }
+  }
+  return []
+}
+
+function groupByFieldCycle(pairs: KeyValuePair[], fields: string[]): Record<string, string>[] {
+  const rows: Record<string, string>[] = []
+  const n = fields.length
+  for (let i = 0; i + n <= pairs.length; i += n) {
+    const row: Record<string, string> = {}
+    for (let j = 0; j < n; j++) {
+      row[fields[j]] = pairs[i + j].value
+    }
+    rows.push(row)
+  }
+  return rows
+}
+
+function amountClass(value: string): string {
+  if (value.startsWith('+')) return 'text-green-700 font-medium'
+  if (value.startsWith('-')) return 'text-red-600 font-medium'
+  return 'text-[#333333]'
+}
+
+function isAmountKey(key: string): boolean {
+  const k = key.toLowerCase()
+  return k.includes('amount') || k.includes('debit') || k.includes('credit') || k.includes('balance')
+}
+
+function isDescriptionKey(key: string): boolean {
+  return key.toLowerCase().includes('description')
+}
+
+function TransactionTable({ cat, pairs }: { cat: string; pairs: KeyValuePair[] }) {
+  const isPiped = pairs.some(p => p.value.includes('|'))
+  const fieldCycle = !isPiped ? detectFieldCycle(pairs) : []
+  const isGrouped = fieldCycle.length > 0
+  const rowCount = isGrouped
+    ? Math.floor(pairs.length / fieldCycle.length)
+    : pairs.length
+
+  return (
+    <div className="bg-white rounded border border-[#e0e0e0]">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#f0f0f0]">
+        <span className="text-sm font-semibold text-[#333333]">{cat}</span>
+        <span className="text-xs text-[#888888]">{rowCount} rows</span>
+      </div>
+
+      {/* ── Grouped columnar table (repeating field cycle) ── */}
+      {isGrouped && (() => {
+        const rows = groupByFieldCycle(pairs, fieldCycle)
+        return (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="bg-[#fafafa] border-b border-[#f0f0f0]">
+                  {fieldCycle.map(col => (
+                    <th
+                      key={col}
+                      className="px-3 py-2 text-left text-[10px] font-semibold text-[#888888] uppercase tracking-wider whitespace-nowrap"
+                    >
+                      {col}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row, i) => (
+                  <tr
+                    key={i}
+                    className={`border-b border-[#f5f5f5] last:border-0 ${i % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'}`}
+                  >
+                    {fieldCycle.map(col => {
+                      const val = row[col] ?? ''
+                      const isDesc = isDescriptionKey(col)
+                      const isAmt = isAmountKey(col)
+                      return (
+                        <td
+                          key={col}
+                          className={`px-3 py-2 whitespace-nowrap ${isDesc ? 'max-w-[220px] truncate' : ''} ${isAmt ? amountClass(val) : 'text-[#333333]'}`}
+                          title={isDesc ? val : undefined}
+                        >
+                          {val || <span className="text-[#cccccc]">—</span>}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      })()}
+
+      {/* ── Pipe-delimited table (legacy format) ── */}
+      {isPiped && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs border-collapse">
+            <thead>
+              <tr className="bg-[#fafafa] border-b border-[#f0f0f0]">
+                {TX_COLS.map(col => (
+                  <th
+                    key={col}
+                    className="px-3 py-2 text-left text-[10px] font-semibold text-[#888888] uppercase tracking-wider whitespace-nowrap"
+                  >
+                    {col}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {pairs.map((pair, i) => {
+                const cols = parseTransactionRow(pair.value)
+                return (
+                  <tr
+                    key={i}
+                    className={`border-b border-[#f5f5f5] last:border-0 ${i % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'}`}
+                  >
+                    {cols.map((col, j) => (
+                      <td
+                        key={j}
+                        className={`px-3 py-2 text-[#333333] whitespace-nowrap ${
+                          j === 1 ? 'max-w-[200px] truncate' : ''
+                        } ${
+                          j === 2 && col ? 'text-red-600 font-medium' :
+                          j === 3 && col ? 'text-green-700 font-medium' : ''
+                        }`}
+                        title={j === 1 ? col : undefined}
+                      >
+                        {col || <span className="text-[#cccccc]">—</span>}
+                      </td>
+                    ))}
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ── Fallback: plain key-value rows ── */}
+      {!isPiped && !isGrouped && pairs.map((pair, i) => (
+        <div
+          key={i}
+          className={`flex items-start gap-3 px-4 py-2.5 ${i % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'}`}
+        >
+          <span className="text-xs text-[#888888] w-36 flex-shrink-0 pt-0.5">{pair.key}</span>
+          <span className="text-xs font-medium text-[#333333] break-words flex-1">{pair.value}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function KVPanel({ documentType, result, loading, error, onExtract }: KVPanelProps) {
   const [inputValue, setInputValue] = useState('')
   const [additionalKeys, setAdditionalKeys] = useState<string[]>([])
@@ -58,12 +231,13 @@ export function KVPanel({ documentType, result, loading, error, onExtract }: KVP
   }
 
   function handleExtract() {
-    onExtract(additionalKeys.length ? additionalKeys : undefined)
+    onExtract(additionalKeys)
   }
 
   const grouped = result
     ? result.pairs.reduce<Record<string, typeof result.pairs>>((acc, pair) => {
         const cat = pair.category || 'General'
+        if (cat.toLowerCase() === 'footer') return acc
         if (!acc[cat]) acc[cat] = []
         acc[cat].push(pair)
         return acc
@@ -210,9 +384,9 @@ export function KVPanel({ documentType, result, loading, error, onExtract }: KVP
         </p>
       </div>
 
-      {/* Additional fields for re-extraction */}
+      {/* Re-extract with specific fields */}
       <div className="bg-white rounded border border-[#e0e0e0] p-4">
-        <p className="text-xs font-medium text-[#333333] mb-2">Extract additional fields</p>
+        <p className="text-xs font-medium text-[#333333] mb-2">Suggested fields</p>
         <div className="flex flex-wrap gap-1.5 mb-3">
           {suggestions.map(s => {
             const active = additionalKeys.includes(s)
@@ -264,6 +438,12 @@ export function KVPanel({ documentType, result, loading, error, onExtract }: KVP
       {/* Category tables */}
       {categories.map((cat) => {
         const pairs = grouped[cat]
+        const isTransactions = cat.toLowerCase().includes('transaction')
+
+        if (isTransactions) {
+          return <TransactionTable key={cat} cat={cat} pairs={pairs} />
+        }
+
         return (
           <div key={cat} className="bg-white rounded border border-[#e0e0e0]">
             <div className="flex items-center justify-between px-4 py-3 border-b border-[#f0f0f0]">

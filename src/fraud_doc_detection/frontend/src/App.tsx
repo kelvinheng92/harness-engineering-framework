@@ -10,6 +10,7 @@ import { ChatPanel } from './components/ChatPanel'
 import {
   uploadDocument,
   analyzeDocument,
+  getAnalysis,
   listDocuments,
   deleteDocument,
   getDocumentFileUrl,
@@ -168,7 +169,7 @@ export default function App() {
     }
   }
 
-  const handleExtractKV = async (additionalKeys?: string[]) => {
+  const handleExtractKV = async (additionalKeys: string[] = []) => {
     if (!selectedDocId || !selectedDocType) return
     setKvLoading(true)
     setKvError(null)
@@ -242,16 +243,11 @@ export default function App() {
               </span>
             )}
           </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-1.5">
-              <Brain size={13} className={geminiConfigured ? 'text-green-600' : 'text-[#cccccc]'} />
-              <span className="text-xs text-[#888888]">
-                {geminiConfigured ? `${activeProvider} ready` : 'AI not configured'}
-              </span>
-            </div>
-            <button className="text-sm font-semibold text-[#C8102E] border border-[#C8102E] px-4 py-1.5 rounded hover:bg-[#fbeaed] transition-colors">
-              Sign In
-            </button>
+          <div className="flex items-center gap-1.5">
+            <Brain size={13} className={geminiConfigured ? 'text-green-600' : 'text-[#cccccc]'} />
+            <span className="text-xs text-[#888888]">
+              {geminiConfigured ? `${activeProvider} ready` : 'AI not configured'}
+            </span>
           </div>
         </header>
 
@@ -272,7 +268,7 @@ export default function App() {
                   </p>
                   {!geminiConfigured && (
                     <div className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2 inline-block">
-                      Configure your Gemini API key in Settings to enable AI features.
+                      Configure your API key in Settings to enable AI features.
                     </div>
                   )}
                 </div>
@@ -289,7 +285,6 @@ export default function App() {
               </div>
             </div>
           )}
-
 
           {page === 'main' && state === 'error' && (
             <div className="flex-1 flex items-center justify-center p-12 bg-[#f5f5f5]">
@@ -338,14 +333,14 @@ export default function App() {
                     label="Key Values"
                     active={activeTab === 'kv'}
                     disabled={!canKV}
-                    title={!canKV ? (!geminiConfigured ? 'Configure Gemini API key in Settings' : 'Only for bank statements & annual reports') : undefined}
+                    title={!canKV ? 'Configure an AI provider in Settings to enable this feature' : undefined}
                     onClick={() => setActiveTab('kv')}
                   />
                   <TabButton
                     label="Ask Document"
                     active={activeTab === 'chat'}
                     disabled={!canChat}
-                    title={!canChat ? (!geminiConfigured ? 'Configure Gemini API key in Settings' : 'Only for bank statements & annual reports') : undefined}
+                    title={!canChat ? 'Configure an AI provider in Settings to enable this feature' : undefined}
                     onClick={() => setActiveTab('chat')}
                   />
                 </div>
@@ -363,21 +358,15 @@ export default function App() {
                       ) : (
                         <div className="flex flex-col items-center justify-center h-full text-center gap-3">
                           <Shield size={32} className="text-[#e0e0e0]" />
-                          {canFraud ? (
-                            <>
-                              <p className="text-sm text-[#888888]">No fraud analysis yet.</p>
-                              <button
-                                onClick={handleReanalyze}
-                                className="px-4 py-2 bg-[#C8102E] text-white text-sm rounded hover:bg-[#a50d26] transition-colors font-medium"
-                              >
-                                Run Analysis
-                              </button>
-                            </>
-                          ) : (
-                            <p className="text-sm text-[#888888]">
-                              Fraud detection is only available for bank statements.
-                            </p>
-                          )}
+                          <>
+                            <p className="text-sm text-[#888888]">No fraud analysis yet.</p>
+                            <button
+                              onClick={handleReanalyze}
+                              className="px-4 py-2 bg-[#C8102E] text-white text-sm rounded hover:bg-[#a50d26] transition-colors font-medium"
+                            >
+                              Run Analysis
+                            </button>
+                          </>
                         </div>
                       )}
                     </div>

@@ -13,8 +13,8 @@ const StatusIcon = ({ status }: { status: MetadataEntry['status'] }) => {
       return <MinusCircle size={13} className="text-[#aaaaaa]" />
     case 'annotation':
       return (
-        <span className="text-[11px] px-1.5 py-0.5 bg-[#fbeaed] text-[#C8102E] rounded font-medium border border-[#f5c0c9]">
-          Annotation
+        <span className="text-[11px] px-1.5 py-0.5 bg-[#eef2ff] text-[#4f6bed] rounded font-medium border border-[#c7d2fe]">
+          Info
         </span>
       )
   }
@@ -53,16 +53,21 @@ export function MetadataTable({ entries, currentPage, totalPages, onPageChange }
         </div>
       </div>
 
-      <table className="w-full text-xs">
+      <table className="w-full text-xs table-fixed">
+        <colgroup>
+          <col style={{ width: '38%' }} />
+          <col style={{ width: '46%' }} />
+          <col style={{ width: '16%' }} />
+        </colgroup>
         <thead>
           <tr className="bg-[#f5f5f5]">
-            <th className="text-left px-4 py-2.5 font-semibold text-[#555555] w-1/3 border-b border-[#e0e0e0]">
-              Original Text
+            <th className="text-left px-4 py-2.5 font-semibold text-[#555555] border-b border-[#e0e0e0]">
+              Field
             </th>
-            <th className="text-left px-4 py-2.5 font-semibold text-[#555555] w-1/3 border-b border-[#e0e0e0]">
-              New Text
+            <th className="text-left px-4 py-2.5 font-semibold text-[#555555] border-b border-[#e0e0e0]">
+              Value
             </th>
-            <th className="text-left px-4 py-2.5 font-semibold text-[#555555] w-1/3 border-b border-[#e0e0e0]">
+            <th className="text-left px-4 py-2.5 font-semibold text-[#555555] border-b border-[#e0e0e0]">
               Status
             </th>
           </tr>
@@ -73,20 +78,16 @@ export function MetadataTable({ entries, currentPage, totalPages, onPageChange }
               key={i}
               className={`border-t border-[#f0f0f0] ${i % 2 === 0 ? 'bg-white' : 'bg-[#fafafa]'}`}
             >
-              <td className="px-4 py-2.5">
-                <div>
-                  <p className="font-medium text-[#333333]">{entry.field}</p>
-                  {entry.original_text && (
-                    <p className="text-[#888888] truncate max-w-[160px]" title={entry.original_text}>
-                      {entry.original_text}
-                    </p>
-                  )}
-                </div>
+              <td className="px-4 py-2.5 align-top">
+                <p className="font-medium text-[#333333] break-words">{entry.field}</p>
+                {entry.original_text && (
+                  <p className="text-[#888888] break-words mt-0.5">{entry.original_text}</p>
+                )}
               </td>
-              <td className="px-4 py-2.5 text-[#666666]">
+              <td className="px-4 py-2.5 text-[#666666] align-top break-words">
                 {entry.new_text || <span className="text-[#cccccc]">—</span>}
               </td>
-              <td className="px-4 py-2.5">
+              <td className="px-4 py-2.5 align-top">
                 <StatusIcon status={entry.status} />
               </td>
             </tr>

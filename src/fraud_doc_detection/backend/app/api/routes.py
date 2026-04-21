@@ -17,8 +17,12 @@ from app.models.schemas import (
     ApiKeyRequest, StatusResponse, DocumentType,
 )
 from app.services.fraud_detector import DocumentFraudDetector
+from app.services.ocr_service import OCRService
 from app.services import llm_service
 from app.core.config import settings
+
+# Shared OCR service instance — reuses HTTP connections across requests
+_ocr_service = OCRService()
 
 router = APIRouter()
 
@@ -95,6 +99,7 @@ async def set_api_key(body: ApiKeyRequest):
         "gemini": "GEMINI_API_KEY",
         "groq": "GROQ_API_KEY",
         "openrouter": "OPENROUTER_API_KEY",
+        "qwen": "QWEN_API_KEY",
     }.get(provider, "GROQ_API_KEY")
 
     lines: list[str] = []
@@ -239,7 +244,7 @@ async def analyze_document(document_id: str):
     if result_path.exists():
         return AnalysisResult(**json.loads(result_path.read_text()))
 
-    detector = DocumentFraudDetector(file_path)
+    detector = DocumentFraudDetector(file_path, ocr_service=_ocr_service)
     try:
         result = detector.run(document_id=document_id, filename=doc_info["filename"])
     finally:
@@ -300,34 +305,23 @@ async def extract_key_values(document_id: str, body: ExtractionRequest = Extract
     _require_llm()
     doc_info = _get_doc_or_404(document_id)
 
-    doc_type = doc_info.get("document_type")
+    doc_type = doc_info.get("document_type") or "other"
 
-    # Auto-classify if not done yet (e.g. Gemini wasn't configured at upload time)
-    if not doc_type:
-        try:
-            cls_result = llm_service.classify_document(doc_info["file_path"])
-            doc_type = cls_result.get("document_type", "other")
-            _documents[document_id]["document_type"] = doc_type
-            _save_registry()
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Auto-classification failed: {exc}")
+    additional_keys = body.additional_keys or None
 
-    # Return cached result only when no additional keys are requested
+    # Only use cache for full (non-targeted) extractions
     kv_path = KV_DIR / f"{document_id}.json"
-    if kv_path.exists() and not body.additional_keys:
-        cached = KVExtractionResult(**json.loads(kv_path.read_text()))
-        # Invalidate cache if type changed
-        if cached.document_type == doc_type:
-            return cached
+    if not additional_keys and kv_path.exists():
+        return KVExtractionResult(**json.loads(kv_path.read_text()))
 
     file_path = doc_info["file_path"]
     try:
-        raw = llm_service.extract_key_values(file_path, doc_type, body.additional_keys)
+        raw = llm_service.extract_key_values(file_path, doc_type, additional_keys)
     except RuntimeError as exc:
-        status = 429 if "quota" in str(exc).lower() else 500
-        raise HTTPException(status_code=status, detail=str(exc))
+        status_code = 429 if "quota" in str(exc).lower() or "rate" in str(exc).lower() else 500
+        raise HTTPException(status_code=status_code, detail=str(exc))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Extraction failed: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
 
     def _to_str(v: object) -> str:
         """Flatten any non-string value the LLM may return (list, dict, number)."""
@@ -355,7 +349,8 @@ async def extract_key_values(document_id: str, body: ExtractionRequest = Extract
         pairs=pairs,
         extracted_at=_now(),
     )
-    kv_path.write_text(result.model_dump_json())
+    if not additional_keys:
+        kv_path.write_text(result.model_dump_json())
     return result
 
 
@@ -375,18 +370,6 @@ async def ask_question(document_id: str, body: QARequest):
     """Ask a question about the document using Gemini."""
     _require_llm()
     doc_info = _get_doc_or_404(document_id)
-
-    doc_type = doc_info.get("document_type")
-
-    # Auto-classify if not done yet
-    if not doc_type:
-        try:
-            cls_result = llm_service.classify_document(doc_info["file_path"])
-            doc_type = cls_result.get("document_type", "other")
-            _documents[document_id]["document_type"] = doc_type
-            _save_registry()
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=f"Auto-classification failed: {exc}")
 
     file_path = doc_info["file_path"]
     history = _chat_history.get(document_id, [])
