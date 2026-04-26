@@ -41,6 +41,10 @@ before writing code. When in doubt, you err on the side of caution.
 
 @rules/code-standards.md
 
+## Test-driven development
+
+@rules/test-driven-development.md
+
 ### Python
 
 - Use pip for dependency management
