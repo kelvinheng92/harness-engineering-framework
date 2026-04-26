@@ -10,8 +10,9 @@ Rules complement `CLAUDE.md` memory by providing explicit, structured constraint
 
 ```
 rules/
-├── README.md          ← this file
-└── code-standards.md  ← Python, Git, and general coding constraints
+├── README.md                      ← this file
+├── code-standards.md              ← Python, Git, and general coding constraints
+└── test-driven-development.md     ← TDD workflow, coverage requirements, and tooling
 ```
 
 ## How to use
